@@ -1,0 +1,19 @@
+[build]
+# 启用并行编译
+jobs = 4
+
+[target.x86_64-apple-darwin]
+# macOS x86_64 特定优化
+rustflags = ["-C", "target-cpu=native"]
+
+[target.aarch64-apple-darwin]
+# macOS ARM64 特定优化
+rustflags = ["-C", "target-cpu=native"]
+
+[net]
+# 使用国内镜像源加速依赖下载（可选）
+# git-fetch-with-cli = true
+
+[env]
+# 设置环境变量来优化编译
+RUSTFLAGS = "-C target-cpu=native"

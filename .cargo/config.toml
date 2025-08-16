@@ -1,0 +1,21 @@
+[build]
+# 启用并行编译，根据你的 CPU 核心数调整
+jobs = 4
+
+[target.x86_64-apple-darwin]
+# macOS x86_64 特定优化
+rustflags = ["-C", "target-cpu=native"]
+
+[target.aarch64-apple-darwin]
+# macOS ARM64 特定优化（适用于 Apple Silicon）
+rustflags = ["-C", "target-cpu=native"]
+
+[env]
+# 设置环境变量来优化编译
+RUSTFLAGS = "-C target-cpu=native"
+
+# 启用增量编译缓存
+CARGO_INCREMENTAL = "1"
+
+# 优化依赖下载
+CARGO_NET_GIT_FETCH_WITH_CLI = "true"
