@@ -1,9 +1,11 @@
 use crate::utils::time::get_time;
 use image::GenericImageView;
+use memmap2::{MmapMut, MmapOptions};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 use tauri::ipc::Response;
 
 // Chunk 缓存目录
@@ -197,7 +199,9 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     println!("[RUST] 开始预处理和缓存 chunks: {}ms", start_time);
 
     // 记录优化信息
-    println!("[RUST] 使用优化版本：预分配内存 + view 方法 + 批量像素提取 + 并行处理");
+    println!(
+        "[RUST] 使用优化版本：预分配内存 + view 方法 + 批量像素提取 + 并行处理 + 内存映射零拷贝"
+    );
 
     // 使用正确的相对路径 - 从当前工作目录开始
     let file_path = "../public/tissue_hires_image.png";
@@ -282,13 +286,53 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     let num_threads = rayon::current_num_threads();
     println!("[RUST] 并行配置：使用 {} 个线程", num_threads);
 
-    // 并行处理所有 chunks
+    // 计算内存映射文件的总大小
+    let mmap_start = get_time();
+    let total_mmap_size = calculate_total_mmap_size(&chunks);
+    println!("[RUST] 内存映射文件总大小: {} 字节", total_mmap_size);
+
+    // 创建内存映射文件
+    let mmap_file_path = cache_dir.join("chunks_data.bin");
+    let mmap_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&mmap_file_path)
+        .map_err(|e| format!("创建内存映射文件失败: {}", e))?;
+
+    // 设置文件大小
+    mmap_file
+        .set_len(total_mmap_size)
+        .map_err(|e| format!("设置文件大小失败: {}", e))?;
+
+    // 创建内存映射
+    let mmap = unsafe {
+        MmapOptions::new()
+            .map_mut(&mmap_file)
+            .map_err(|e| format!("创建内存映射失败: {}", e))?
+    };
+
+    let mmap_end = get_time();
+    println!(
+        "[RUST] 内存映射文件创建完成: {}ms (耗时: {}ms)",
+        mmap_end,
+        mmap_end - mmap_start
+    );
+
+    // 将内存映射包装在 Arc<Mutex> 中以支持并行访问
+    let mmap_arc = Arc::new(Mutex::new(mmap));
+
+    // 并行处理所有 chunks 并写入内存映射
     let parallel_start = get_time();
 
-    // 使用 rayon 并行处理
+    // 使用 rayon 并行处理，直接写入内存映射
     let chunk_results: Vec<Result<(), String>> = chunks
         .par_iter()
-        .map(|chunk_info| process_single_chunk_parallel(&img, chunk_info, &cache_dir, chunk_size))
+        .enumerate()
+        .map(|(index, chunk_info)| {
+            process_chunk_to_mmap(&img, chunk_info, &mmap_arc, index, &chunks)
+        })
         .collect();
 
     let parallel_end = get_time();
@@ -307,6 +351,23 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     }
 
     println!("[RUST] 所有 {} 个 chunks 处理成功", total_chunks);
+
+    // 同步内存映射到磁盘
+    let sync_start = get_time();
+    {
+        let mut mmap_guard = mmap_arc
+            .lock()
+            .map_err(|e| format!("获取内存映射锁失败: {}", e))?;
+        mmap_guard
+            .flush()
+            .map_err(|e| format!("同步内存映射失败: {}", e))?;
+    }
+    let sync_end = get_time();
+    println!(
+        "[RUST] 内存映射同步完成: {}ms (耗时: {}ms)",
+        sync_end,
+        sync_end - sync_start
+    );
 
     // 保存元数据到文件
     let metadata = ImageMetadata {
@@ -505,6 +566,87 @@ fn process_single_chunk_parallel(
         chunk_end,
         chunk_end - chunk_start,
         pixels.len() / 4
+    );
+
+    Ok(())
+}
+
+/// 计算内存映射文件的总大小
+fn calculate_total_mmap_size(chunks: &[ChunkInfo]) -> u64 {
+    let mut total_size = 0u64;
+
+    for chunk in chunks {
+        // 每个 chunk 的头部：宽度(4字节) + 高度(4字节) + 像素数据
+        let pixel_count = (chunk.width * chunk.height) as u64;
+        let chunk_size = 8 + (pixel_count * 4); // 8字节头部 + RGBA像素数据
+        total_size += chunk_size;
+    }
+
+    total_size
+}
+
+/// 处理单个 chunk 并写入内存映射
+fn process_chunk_to_mmap(
+    img: &image::DynamicImage,
+    chunk_info: &ChunkInfo,
+    mmap_arc: &Arc<Mutex<MmapMut>>,
+    chunk_index: usize,
+    all_chunks: &[ChunkInfo],
+) -> Result<(), String> {
+    let chunk_start = get_time();
+
+    // 计算在内存映射中的偏移位置
+    let mut offset = 0u64;
+    for i in 0..chunk_index {
+        let chunk = &all_chunks[i];
+        let pixel_count = (chunk.width * chunk.height) as u64;
+        let chunk_size = 8 + (pixel_count * 4);
+        offset += chunk_size;
+    }
+
+    // 提取指定区域的像素数据（优化版本）
+    let pixels = extract_chunk_pixels_optimized(
+        img,
+        chunk_info.x,
+        chunk_info.y,
+        chunk_info.width,
+        chunk_info.height,
+    );
+
+    // 计算当前 chunk 的大小
+    let chunk_size = 8 + pixels.len() as u64;
+
+    // 直接写入内存映射，实现零拷贝
+    let start_offset = offset as usize;
+    let end_offset = (offset + chunk_size) as usize;
+
+    // 写入头部信息
+    let width_bytes = chunk_info.width.to_be_bytes();
+    let height_bytes = chunk_info.height.to_be_bytes();
+
+    // 获取内存映射的锁并写入数据
+    let mut mmap_guard = mmap_arc
+        .lock()
+        .map_err(|e| format!("获取内存映射锁失败: {}", e))?;
+
+    mmap_guard[start_offset..start_offset + 4].copy_from_slice(&width_bytes);
+    mmap_guard[start_offset + 4..start_offset + 8].copy_from_slice(&height_bytes);
+
+    // 写入像素数据
+    mmap_guard[start_offset + 8..end_offset].copy_from_slice(&pixels);
+
+    // 释放锁
+    drop(mmap_guard);
+
+    let chunk_end = get_time();
+    println!(
+        "[RUST] Chunk ({}, {}) 内存映射写入完成: {}ms (耗时: {}ms), 偏移: {}, 大小: {} 字节",
+        chunk_info.chunk_x,
+        chunk_info.chunk_y,
+        chunk_end,
+        chunk_end - chunk_start,
+        offset,
+        chunk_size
     );
 
     Ok(())

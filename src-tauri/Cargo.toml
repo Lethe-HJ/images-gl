@@ -24,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = "0.24"
 rayon = "1.8"
+memmap2 = "0.9"
 
 [profile.dev]
 # 启用增量编译
