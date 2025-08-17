@@ -14,10 +14,10 @@ const worker = new Worker(
 
 async function getImage() {
   const startTime = getTime();
-  console.log(`[TS] 开始加载图片: ${startTime}ms`);
 
   try {
     const invokeStart = getTime();
+    console.log(`[TS] 开始调用Rust: read_file ${invokeStart}ms`);
     const imageBuffer = await invoke("read_file");
     const invokeEnd = getTime();
     console.log(
@@ -72,11 +72,14 @@ async function getImage() {
             }ms)`
           );
 
-          currentImage = { width: width, height: height } as ImageBitmap;
+          currentImage = imageBitmap; // 直接使用 Worker 返回的 ImageBitmap
+          console.log(
+            `[TS] 接收到 ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}, 类型: ${imageBitmap.constructor.name}`
+          );
 
           // 初始化其他 WebGL 资源并渲染
           const initStartTime = getTime();
-          initializeWebGLResources(currentImage);
+          initializeWebGLResources(imageBitmap);
           const initEndTime = getTime();
           console.log(
             `[TS] WebGL初始化完成: ${initEndTime}ms (耗时: ${
@@ -189,11 +192,6 @@ function initializeWebGLResources(image: HTMLImageElement | ImageBitmap): void {
 
   // 计算初始缩放比例，使图片完全显示在 canvas 中
   calculateInitialScale();
-
-  console.log("WebGL 初始化完成:");
-  console.log("- Canvas 尺寸:", canvas.clientWidth, "x", canvas.clientHeight);
-  console.log("- 图片尺寸:", image.width, "x", image.height);
-  console.log("- 视图状态:", viewState);
 
   // setup GLSL program
   program = webglUtils.createProgramFromSources(gl, [
@@ -369,17 +367,6 @@ function redraw(): void {
 
   // 绘制
   gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-  const renderEndTime = getTime();
-  console.log(
-    `[TS] 渲染完成: ${renderEndTime}ms (耗时: ${
-      renderEndTime - renderStartTime
-    }ms) - 缩放=${viewState.scale.toFixed(
-      2
-    )}, 位置=(${viewState.offsetX.toFixed(0)}, ${viewState.offsetY.toFixed(
-      0
-    )}), 尺寸=${scaledWidth.toFixed(0)}x${scaledHeight.toFixed(0)}`
-  );
 }
 
 // 设置滚轮缩放事件
@@ -389,8 +376,6 @@ function setupWheelEvent(): void {
   const canvasElement = canvas; // 创建一个局部引用
 
   canvasElement.addEventListener("wheel", (event) => {
-    const wheelStartTime = getTime();
-
     event.preventDefault();
 
     const delta = event.deltaY > 0 ? 0.9 : 1.1; // 滚轮向下缩小，向上放大
@@ -410,23 +395,8 @@ function setupWheelEvent(): void {
       viewState.offsetX -= (mouseX - viewState.offsetX) * scaleDiff;
       viewState.offsetY -= (mouseY - viewState.offsetY) * scaleDiff;
 
-      console.log(
-        `[TS] 缩放操作: ${getTime()}ms - 缩放=${viewState.scale.toFixed(
-          2
-        )}, 偏移=(${viewState.offsetX.toFixed(0)}, ${viewState.offsetY.toFixed(
-          0
-        )})`
-      );
-
       // 重新绘制
-      const redrawStartTime = getTime();
       redraw();
-      const redrawEndTime = getTime();
-      console.log(
-        `[TS] 缩放重绘完成: ${redrawEndTime}ms (重绘耗时: ${
-          redrawEndTime - redrawStartTime
-        }ms, 总耗时: ${redrawEndTime - wheelStartTime}ms)`
-      );
     }
   });
 }

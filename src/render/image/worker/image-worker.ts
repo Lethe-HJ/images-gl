@@ -66,6 +66,11 @@ self.onmessage = async function (e: MessageEvent<WorkerMessage>) {
         totalEndTime - startTime
       }ms)`
     );
+    console.log(
+      `[WORKER] ImageBitmap 创建成功: ${imgWidth}x${imgHeight}, 大小: ${
+        imgWidth * imgHeight * 4
+      } 字节`
+    );
 
     // 返回处理结果
     const response: WorkerResponse = {

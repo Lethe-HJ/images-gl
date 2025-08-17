@@ -4,12 +4,11 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "vite": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "dev:tauri": "bash ./scripts/dev.sh",
-    "dev:fast": "cd src-tauri && CARGO_INCREMENTAL=1 cargo tauri dev"
+    "dev": "bash ./scripts/dev.sh"
   },
   "dependencies": {
     "vue": "^3.5.13",
