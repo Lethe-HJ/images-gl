@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import Image from './view/Image.vue';
+import Image from './view/image/Image.vue';
 </script>
 
 <template>

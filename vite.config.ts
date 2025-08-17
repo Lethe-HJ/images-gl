@@ -5,8 +5,33 @@ import vue from "@vitejs/plugin-vue";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(() => ({
   plugins: [vue()],
+
+  // 路径别名配置
+  resolve: {
+    alias: {
+      "@": "/src",
+    },
+  },
+
+  // Worker 配置
+  worker: {
+    format: "es" as const,
+    plugins: () => [],
+  },
+
+  // 构建配置
+  build: {
+    rollupOptions: {
+      output: {
+        // 确保 worker 文件被正确打包
+        manualChunks: {
+          "image-worker": ["./src/render/image/worker/image-worker.ts"],
+        },
+      },
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
