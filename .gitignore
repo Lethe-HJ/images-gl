@@ -13,6 +13,7 @@ dist-ssr
 *.local
 resource
 src-tauri/icons
+src-tauri/chunk_cache
 
 # Editor directories and files
 .vscode/*

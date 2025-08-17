@@ -286,11 +286,6 @@ function initializeWebGLResources(image: HTMLImageElement | ImageBitmap): void {
   redraw();
 }
 
-// 通用渲染函数，支持 HTMLImageElement 和 ImageBitmap（兼容性保留）
-function renderImage(image: HTMLImageElement | ImageBitmap): void {
-  initializeWebGLResources(image);
-}
-
 // 计算初始缩放比例，使图片完全显示
 function calculateInitialScale(): void {
   if (!canvas || !currentImage) return;
@@ -318,8 +313,6 @@ function calculateInitialScale(): void {
 
 // 重新绘制图片
 function redraw(): void {
-  const renderStartTime = getTime();
-
   if (!gl || !program || !currentImage || !canvas) return;
 
   // 确保 canvas 尺寸正确

@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import Image from './view/image/Image.vue';
+import ImageChunk from './view/image/ImageChunk.vue';
 </script>
 
 <template>
   <div class="container">
-    <Image />
+    <ImageChunk />
   </div>
 </template>
 
@@ -33,12 +33,10 @@ import Image from './view/image/Image.vue';
   text-align: center;
 }
 
-
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;
     background-color: #2f2f2f;
   }
-
 }
 </style>
