@@ -323,6 +323,16 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     // 将内存映射包装在 Arc<Mutex> 中以支持并行访问
     let mmap_arc = Arc::new(Mutex::new(mmap));
 
+    // 将图片转换为 RGBA8 格式（只转换一次，避免每个chunk重复转换）
+    let rgba_conversion_start = get_time();
+    let rgba_img = img.to_rgba8();
+    let rgba_conversion_end = get_time();
+    println!(
+        "[RUST] 图片转换为RGBA8格式完成: {}ms (耗时: {}ms)",
+        rgba_conversion_end,
+        rgba_conversion_end - rgba_conversion_start
+    );
+
     // 并行处理所有 chunks 并写入内存映射
     let parallel_start = get_time();
 
@@ -331,7 +341,7 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
         .par_iter()
         .enumerate()
         .map(|(index, chunk_info)| {
-            process_chunk_to_mmap(&img, chunk_info, &mmap_arc, index, &chunks)
+            process_chunk_to_mmap(&rgba_img, chunk_info, &mmap_arc, index, &chunks)
         })
         .collect();
 
@@ -494,7 +504,7 @@ pub fn force_preprocess_chunks() -> Result<ImageMetadata, String> {
 
 /// 优化的像素提取函数
 fn extract_chunk_pixels_optimized(
-    img: &image::DynamicImage,
+    rgba_img: &image::RgbaImage,
     x: u32,
     y: u32,
     width: u32,
@@ -504,10 +514,7 @@ fn extract_chunk_pixels_optimized(
     let pixel_count = (width * height) as usize;
     let mut pixels = Vec::with_capacity(pixel_count * 4);
 
-    // 将图片转换为 RGBA8 格式（只转换一次）
-    let rgba_img = img.to_rgba8();
-
-    // 使用 view 方法直接获取指定区域，避免逐像素访问
+    // 直接使用 view 方法获取指定区域，避免重复转换
     let chunk_view = rgba_img.view(x, y, width, height);
 
     // 批量提取像素数据 - 使用更高效的访问方式
@@ -524,7 +531,7 @@ fn extract_chunk_pixels_optimized(
 
 /// 并行处理单个 chunk 的函数
 fn process_single_chunk_parallel(
-    img: &image::DynamicImage,
+    rgba_img: &image::RgbaImage,
     chunk_info: &ChunkInfo,
     cache_dir: &Path,
     chunk_size: u32,
@@ -533,7 +540,7 @@ fn process_single_chunk_parallel(
 
     // 提取指定区域的像素数据（优化版本）
     let pixels = extract_chunk_pixels_optimized(
-        img,
+        rgba_img,
         chunk_info.x,
         chunk_info.y,
         chunk_info.width,
@@ -587,7 +594,7 @@ fn calculate_total_mmap_size(chunks: &[ChunkInfo]) -> u64 {
 
 /// 处理单个 chunk 并写入内存映射
 fn process_chunk_to_mmap(
-    img: &image::DynamicImage,
+    rgba_img: &image::RgbaImage,
     chunk_info: &ChunkInfo,
     mmap_arc: &Arc<Mutex<MmapMut>>,
     chunk_index: usize,
@@ -606,7 +613,7 @@ fn process_chunk_to_mmap(
 
     // 提取指定区域的像素数据（优化版本）
     let pixels = extract_chunk_pixels_optimized(
-        img,
+        rgba_img,
         chunk_info.x,
         chunk_info.y,
         chunk_info.width,
