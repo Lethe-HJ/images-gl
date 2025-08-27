@@ -29,16 +29,8 @@ export interface ImageMetadata {
   chunks: ChunkInfo[]; // 所有 chunk 信息
 }
 
-// Chunk 数据接口
-export interface ChunkData {
-  chunk_x: number; // chunk 的 X 索引
-  chunk_y: number; // chunk 的 Y 索引
-  x: number; // chunk 在图片中的 X 坐标
-  y: number; // chunk 在图片中的 Y 坐标
-  width: number; // chunk 宽度
-  height: number; // chunk 高度
-  pixels: Uint8Array; // RGBA 像素数据
-}
+// 注意：ChunkData 接口已删除，现在直接处理二进制数据
+// 数据格式：宽度(4字节) + 高度(4字节) + RGBA像素数据
 
 // 单个 Chunk 类
 export class ImageChunk {
@@ -195,15 +187,71 @@ export class ChunkManager {
       chunk.updateStatus(ChunkStatus.REQUESTING);
       console.log(`[CHUNK_MANAGER] 开始请求 chunk: ${chunkId}`);
 
-      // 调用 Rust 获取 chunk 数据
+      // 调用 Rust 获取 chunk 数据（零拷贝版本）
       const { invoke } = await import("@tauri-apps/api/core");
-      const chunkData: ChunkData = await invoke("get_image_chunk", {
+      const rawData = await invoke("get_image_chunk", {
         chunkX: chunk.chunk_x,
         chunkY: chunk.chunk_y,
       });
 
-      // 转换像素数据
-      const pixels = new Uint8Array(chunkData.pixels);
+      console.log(`[CHUNK_MANAGER] 接收到的数据类型:`, typeof rawData);
+      console.log(`[CHUNK_MANAGER] 接收到的数据结构:`, rawData);
+
+      // 处理不同的数据类型：ArrayBuffer 或 Uint8Array
+      let chunkData: Uint8Array;
+      if (rawData instanceof ArrayBuffer) {
+        console.log(`[CHUNK_MANAGER] 接收到 ArrayBuffer，转换为 Uint8Array`);
+        chunkData = new Uint8Array(rawData);
+      } else if (rawData instanceof Uint8Array) {
+        console.log(`[CHUNK_MANAGER] 接收到 Uint8Array`);
+        chunkData = rawData;
+      } else {
+        console.error(
+          `[CHUNK_MANAGER] 数据类型错误: 期望 ArrayBuffer 或 Uint8Array，实际 ${typeof rawData}`
+        );
+        throw new Error(
+          `数据类型错误: 期望 ArrayBuffer 或 Uint8Array，实际 ${typeof rawData}`
+        );
+      }
+
+      // 解析二进制数据：宽度(4字节) + 高度(4字节) + 像素数据
+      console.log(`[CHUNK_MANAGER] 接收到原始数据: ${chunkData.length} 字节`);
+
+      if (chunkData.length < 8) {
+        throw new Error(
+          `Chunk 数据格式错误：数据长度不足 ${chunkData.length} 字节`
+        );
+      }
+
+      // 解析宽度和高度（大端序）- 使用 DataView 正确处理32位无符号整数
+      const dataView = new DataView(
+        chunkData.buffer,
+        chunkData.byteOffset,
+        chunkData.byteLength
+      );
+      const width = dataView.getUint32(0, false); // false = 大端序
+      const height = dataView.getUint32(4, false); // false = 大端序
+
+      console.log(`[CHUNK_MANAGER] 解析的尺寸: ${width}x${height}`);
+
+      // 提取像素数据
+      const pixels = chunkData.slice(8);
+      console.log(`[CHUNK_MANAGER] 提取的像素数据: ${pixels.length} 字节`);
+
+      // 验证数据大小
+      const expectedPixelsSize = width * height * 4; // RGBA = 4字节
+      console.log(`[CHUNK_MANAGER] 期望像素大小: ${expectedPixelsSize} 字节`);
+
+      if (pixels.length !== expectedPixelsSize) {
+        throw new Error(
+          `Chunk 数据大小不匹配：期望 ${expectedPixelsSize} 字节，实际 ${pixels.length} 字节`
+        );
+      }
+
+      // 更新chunk的尺寸信息（以防与元数据不一致）
+      chunk.width = width;
+      chunk.height = height;
+
       chunk.setData(pixels);
 
       console.log(

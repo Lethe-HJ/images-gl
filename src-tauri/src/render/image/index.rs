@@ -1,11 +1,10 @@
 use crate::utils::time::get_time;
 use image::GenericImageView;
-use memmap2::{MmapMut, MmapOptions};
+use memmap2::MmapOptions;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use tauri::ipc::Response;
 
 // Chunk 缓存目录
@@ -33,101 +32,8 @@ pub struct ImageMetadata {
     pub chunks: Vec<ChunkInfo>, // 所有 chunk 信息
 }
 
-// Chunk 数据响应结构
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ChunkData {
-    pub chunk_x: u32,    // chunk 的 X 索引
-    pub chunk_y: u32,    // chunk 的 Y 索引
-    pub x: u32,          // chunk 在图片中的 X 坐标
-    pub y: u32,          // chunk 在图片中的 Y 坐标
-    pub width: u32,      // chunk 宽度
-    pub height: u32,     // chunk 高度
-    pub pixels: Vec<u8>, // RGBA 像素数据
-}
-
-#[tauri::command]
-pub fn read_file() -> Result<Response, String> {
-    let start_time = get_time();
-    println!("[RUST] 开始读取图片: {}ms", start_time);
-
-    // 使用正确的相对路径
-    let file_path = "../public/tissue_hires_image.png";
-
-    // 图片解码优化：跳过格式检测，直接使用 PNG 解码器
-    let decode_start = get_time();
-
-    // 直接使用 PNG 解码器，跳过格式检测
-    let file = std::fs::File::open(file_path).map_err(|e| format!("文件打开失败: {}", e))?;
-    let reader = std::io::BufReader::new(file);
-
-    // 使用 PNG 解码器，避免格式检测开销
-    let decoder = image::codecs::png::PngDecoder::new(reader)
-        .map_err(|e| format!("PNG解码器创建失败: {}", e))?;
-
-    let img =
-        image::DynamicImage::from_decoder(decoder).map_err(|e| format!("PNG解码失败: {}", e))?;
-
-    let decode_end = get_time();
-
-    println!(
-        "[RUST] PNG直接解码完成: {}ms (耗时: {}ms)",
-        decode_end,
-        decode_end - decode_start
-    );
-
-    // 获取图片尺寸并打印（用于调试）
-    let (width, height) = img.dimensions();
-    println!("[RUST] 图片尺寸: {}x{}", width, height);
-
-    // RGBA转换优化：直接获取像素数据，避免不必要的转换
-    let convert_start = get_time();
-
-    // 检查图片是否已经是 RGBA8 格式，避免不必要的转换
-    let pixels = match img {
-        image::DynamicImage::ImageRgba8(rgba) => {
-            println!("[RUST] 图片已经是 RGBA8 格式，直接使用");
-            rgba.into_raw()
-        }
-        _ => {
-            println!("[RUST] 图片需要转换为 RGBA8 格式");
-            let rgba_img = img.to_rgba8();
-            rgba_img.into_raw()
-        }
-    };
-
-    let convert_end = get_time();
-    println!(
-        "[RUST] RGBA处理完成: {}ms (耗时: {}ms)",
-        convert_end,
-        convert_end - convert_start
-    );
-
-    // 创建包含尺寸信息的头部（8字节）
-    let mut data = Vec::with_capacity(8 + pixels.len());
-    data.extend_from_slice(&width.to_be_bytes()); // 4字节宽度
-    data.extend_from_slice(&height.to_be_bytes()); // 4字节高度
-
-    data.extend_from_slice(&pixels); // 像素数据
-
-    let end_time = get_time();
-    let data_size = data.len(); // 在移动前保存大小
-
-    // 返回带有尺寸信息的像素数据
-    let response = Ok(Response::new(data));
-    println!(
-        "[RUST] 图片处理完成: {}ms (总耗时: {}ms)",
-        end_time,
-        end_time - start_time
-    ); // 总体耗时最少记录为 2190ms
-    println!(
-        "[RUST] 数据大小: {} 字节 (头部: 8字节, 像素: {}字节)",
-        data_size,
-        pixels.len()
-    );
-    return response;
-    // 这里的返回是直接将内存区域传递给前端进行读取, 不需要进行任何序列化和反序列化, 甚至不需要拷贝
-    // 经测试 这里返回数据与 ts 读取到数据耗时约 67ms
-}
+// 注意：ChunkData 结构体已删除，现在使用零拷贝方式直接返回原始数据
+// 数据格式：宽度(4字节) + 高度(4字节) + RGBA像素数据
 
 /// 获取图片的 chunk 元数据
 #[tauri::command]
@@ -167,10 +73,167 @@ pub fn get_image_metadata() -> Result<ImageMetadata, String> {
     Ok(metadata)
 }
 
+/// 获取特定图片文件的 chunk 元数据
+#[tauri::command]
+pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, String> {
+    println!("[RUST] 开始获取图片元数据: {}", file_path);
+
+    // 检查文件是否存在
+    if !std::path::Path::new(&file_path).exists() {
+        return Err(format!("图片文件不存在: {}", file_path));
+    }
+
+    // 检查是否有这个文件对应的缓存
+    if check_file_cache_exists(&file_path) {
+        println!("[RUST] 发现现有缓存，从缓存加载元数据");
+
+        // 从缓存文件加载元数据
+        let metadata_filepath = Path::new(CHUNK_CACHE_DIR).join("metadata.json");
+        let metadata_content = fs::read_to_string(metadata_filepath)
+            .map_err(|e| format!("读取缓存元数据失败: {}", e))?;
+
+        let metadata: ImageMetadata = serde_json::from_str(&metadata_content)
+            .map_err(|e| format!("解析缓存元数据失败: {}", e))?;
+
+        println!(
+            "[RUST] 从缓存加载元数据成功: {}x{}, 共 {} 个 chunks",
+            metadata.total_width,
+            metadata.total_height,
+            metadata.chunks.len()
+        );
+
+        return Ok(metadata);
+    }
+
+    println!("[RUST] 缓存不存在，开始预处理和缓存 chunks");
+
+    // 使用指定文件路径进行预处理
+    let metadata = preprocess_and_cache_chunks_from_path(&file_path)?;
+
+    println!("[RUST] 预处理完成，元数据已缓存");
+
+    Ok(metadata)
+}
+
+/// 处理用户选择的图片文件
+#[tauri::command]
+pub fn process_user_image(file_path: String) -> Result<ImageMetadata, String> {
+    let start_time = get_time();
+    println!("[RUST] 开始处理用户选择的图片: {}ms", file_path);
+
+    // 检查文件是否存在
+    if !std::path::Path::new(&file_path).exists() {
+        return Err(format!("图片文件不存在: {}", file_path));
+    }
+
+    // 检查文件扩展名
+    let path = std::path::Path::new(&file_path);
+    let extension = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    if !matches!(
+        extension.as_str(),
+        "png" | "jpg" | "jpeg" | "bmp" | "tiff" | "webp"
+    ) {
+        return Err(format!(
+            "不支持的图片格式: {}. 支持的格式: PNG, JPG, JPEG, BMP, TIFF, WEBP",
+            extension
+        ));
+    }
+
+    // 先检查是否有这个文件对应的缓存
+    if check_file_cache_exists(&file_path) {
+        println!("[RUST] 发现现有缓存，从缓存加载元数据");
+
+        // 从缓存文件加载元数据
+        let metadata_filepath = Path::new(CHUNK_CACHE_DIR).join("metadata.json");
+        let metadata_content = fs::read_to_string(metadata_filepath)
+            .map_err(|e| format!("读取缓存元数据失败: {}", e))?;
+
+        let metadata: ImageMetadata = serde_json::from_str(&metadata_content)
+            .map_err(|e| format!("解析缓存元数据失败: {}", e))?;
+
+        println!(
+            "[RUST] 从缓存加载元数据成功: {}x{}, 共 {} 个 chunks",
+            metadata.total_width,
+            metadata.total_height,
+            metadata.chunks.len()
+        );
+
+        return Ok(metadata);
+    }
+
+    println!("[RUST] 缓存不存在，开始预处理和缓存 chunks");
+
+    // 使用用户选择的文件路径进行预处理
+    let metadata = preprocess_and_cache_chunks_from_path(&file_path)?;
+
+    let end_time = get_time();
+    println!(
+        "[RUST] 用户图片处理完成: {}ms (总耗时: {}ms)",
+        end_time,
+        end_time - start_time
+    );
+
+    Ok(metadata)
+}
+
 /// 检查 chunk 缓存是否存在
 fn check_chunk_cache_exists() -> bool {
     let cache_dir = Path::new(CHUNK_CACHE_DIR);
     if !cache_dir.exists() {
+        return false;
+    }
+
+    // 检查元数据文件是否存在
+    let metadata_file = cache_dir.join("metadata.json");
+    if !metadata_file.exists() {
+        return false;
+    }
+
+    // 检查是否有 chunk 文件
+    if let Ok(entries) = fs::read_dir(cache_dir) {
+        let chunk_files: Vec<_> = entries
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with("chunk_"))
+            .collect();
+
+        return !chunk_files.is_empty();
+    }
+
+    false
+}
+
+/// 检查特定文件路径的 chunk 缓存是否存在
+fn check_file_cache_exists(file_path: &str) -> bool {
+    let cache_dir = Path::new(CHUNK_CACHE_DIR);
+    if !cache_dir.exists() {
+        return false;
+    }
+
+    // 检查源文件信息文件是否存在
+    let source_info_file = cache_dir.join("source_info.json");
+    if !source_info_file.exists() {
+        return false;
+    }
+
+    // 读取源文件信息
+    let source_info_content = match fs::read_to_string(&source_info_file) {
+        Ok(content) => content,
+        Err(_) => return false,
+    };
+
+    let source_info: serde_json::Value = match serde_json::from_str(&source_info_content) {
+        Ok(info) => info,
+        Err(_) => return false,
+    };
+
+    // 检查文件路径是否匹配
+    let cached_path = source_info.get("file_path").and_then(|v| v.as_str());
+    if cached_path != Some(file_path) {
         return false;
     }
 
@@ -206,6 +269,14 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     // 使用正确的相对路径 - 从当前工作目录开始
     let file_path = "../public/tissue_hires_image.png";
 
+    preprocess_and_cache_chunks_from_path(file_path)
+}
+
+/// 预处理图片并缓存所有 chunks 从指定路径
+fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadata, String> {
+    let start_time = get_time();
+    println!("[RUST] 开始预处理和缓存 chunks 从路径: {}ms", file_path);
+
     // 图片解码优化：跳过格式检测，直接使用 PNG 解码器
     let decode_start = get_time();
 
@@ -224,8 +295,8 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     let reader = std::io::BufReader::new(file);
 
     // 使用 PNG 解码器，避免格式检测开销
-    let decoder = image::codecs::png::PngDecoder::new(reader)
-        .map_err(|e| format!("PNG解码器创建失败: {}", e))?;
+    let decoder =
+        image::codecs::png::PngDecoder::new(reader).map_err(|e| format!("PNG解码失败: {}", e))?;
 
     let img =
         image::DynamicImage::from_decoder(decoder).map_err(|e| format!("PNG解码失败: {}", e))?;
@@ -243,7 +314,7 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     println!("[RUST] 图片尺寸: {}x{}", total_width, total_height);
 
     // 计算 chunk 信息
-    let chunk_size = 1024; // 固定 chunk 大小为 1024x1024
+    let chunk_size = 4096; // 增加 chunk 大小为 4096x4096，提高传输效率
     let chunks_x = (total_width + chunk_size - 1) / chunk_size; // 向上取整
     let chunks_y = (total_height + chunk_size - 1) / chunk_size; // 向上取整
 
@@ -286,43 +357,6 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     let num_threads = rayon::current_num_threads();
     println!("[RUST] 并行配置：使用 {} 个线程", num_threads);
 
-    // 计算内存映射文件的总大小
-    let mmap_start = get_time();
-    let total_mmap_size = calculate_total_mmap_size(&chunks);
-    println!("[RUST] 内存映射文件总大小: {} 字节", total_mmap_size);
-
-    // 创建内存映射文件
-    let mmap_file_path = cache_dir.join("chunks_data.bin");
-    let mmap_file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .open(&mmap_file_path)
-        .map_err(|e| format!("创建内存映射文件失败: {}", e))?;
-
-    // 设置文件大小
-    mmap_file
-        .set_len(total_mmap_size)
-        .map_err(|e| format!("设置文件大小失败: {}", e))?;
-
-    // 创建内存映射
-    let mmap = unsafe {
-        MmapOptions::new()
-            .map_mut(&mmap_file)
-            .map_err(|e| format!("创建内存映射失败: {}", e))?
-    };
-
-    let mmap_end = get_time();
-    println!(
-        "[RUST] 内存映射文件创建完成: {}ms (耗时: {}ms)",
-        mmap_end,
-        mmap_end - mmap_start
-    );
-
-    // 将内存映射包装在 Arc<Mutex> 中以支持并行访问
-    let mmap_arc = Arc::new(Mutex::new(mmap));
-
     // 将图片转换为 RGBA8 格式（只转换一次，避免每个chunk重复转换）
     let rgba_conversion_start = get_time();
     let rgba_img = img.to_rgba8();
@@ -333,15 +367,14 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
         rgba_conversion_end - rgba_conversion_start
     );
 
-    // 并行处理所有 chunks 并写入内存映射
+    // 并行处理所有 chunks 并保存为单独的文件
     let parallel_start = get_time();
 
-    // 使用 rayon 并行处理，直接写入内存映射
+    // 使用 rayon 并行处理，为每个chunk生成单独的文件
     let chunk_results: Vec<Result<(), String>> = chunks
         .par_iter()
-        .enumerate()
-        .map(|(index, chunk_info)| {
-            process_chunk_to_mmap(&rgba_img, chunk_info, &mmap_arc, index, &chunks)
+        .map(|chunk_info| {
+            process_single_chunk_parallel(&rgba_img, chunk_info, cache_dir, chunk_size)
         })
         .collect();
 
@@ -362,23 +395,6 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
 
     println!("[RUST] 所有 {} 个 chunks 处理成功", total_chunks);
 
-    // 同步内存映射到磁盘
-    let sync_start = get_time();
-    {
-        let mut mmap_guard = mmap_arc
-            .lock()
-            .map_err(|e| format!("获取内存映射锁失败: {}", e))?;
-        mmap_guard
-            .flush()
-            .map_err(|e| format!("同步内存映射失败: {}", e))?;
-    }
-    let sync_end = get_time();
-    println!(
-        "[RUST] 内存映射同步完成: {}ms (耗时: {}ms)",
-        sync_end,
-        sync_end - sync_start
-    );
-
     // 保存元数据到文件
     let metadata = ImageMetadata {
         total_width,
@@ -395,6 +411,21 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     let metadata_filepath = cache_dir.join("metadata.json");
     fs::write(&metadata_filepath, metadata_json).map_err(|e| format!("保存元数据失败: {}", e))?;
 
+    // 保存源文件信息
+    let source_info = serde_json::json!({
+        "file_path": file_path,
+        "total_width": total_width,
+        "total_height": total_height,
+        "chunk_size": chunk_size,
+        "chunks_x": chunks_x,
+        "chunks_y": chunks_y,
+    });
+    let source_info_json =
+        serde_json::to_string(&source_info).map_err(|e| format!("序列化源文件信息失败: {}", e))?;
+    let source_info_filepath = cache_dir.join("source_info.json");
+    fs::write(&source_info_filepath, source_info_json)
+        .map_err(|e| format!("保存源文件信息失败: {}", e))?;
+
     let end_time = get_time();
     println!(
         "[RUST] 预处理和缓存完成: {}ms (总耗时: {}ms), 共 {} 个 chunks",
@@ -406,9 +437,9 @@ fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
     Ok(metadata)
 }
 
-/// 获取特定 chunk 的像素数据
+/// 获取特定 chunk 的像素数据（零拷贝版本）
 #[tauri::command]
-pub fn get_image_chunk(chunk_x: u32, chunk_y: u32) -> Result<ChunkData, String> {
+pub fn get_image_chunk(chunk_x: u32, chunk_y: u32) -> Result<Response, String> {
     let start_time = get_time();
     println!(
         "[RUST] 开始获取 chunk ({}, {}): {}ms",
@@ -428,50 +459,41 @@ pub fn get_image_chunk(chunk_x: u32, chunk_y: u32) -> Result<ChunkData, String> 
         return Err(format!("Chunk 文件不存在: {:?}", chunk_filepath));
     }
 
+    // 直接读取文件数据，零拷贝传输
     let chunk_data =
         fs::read(&chunk_filepath).map_err(|e| format!("读取 chunk 文件失败: {}", e))?;
 
-    // 解析 chunk 数据：宽度(4字节) + 高度(4字节) + 像素数据
+    // 验证数据格式：宽度(4字节) + 高度(4字节) + 像素数据
     if chunk_data.len() < 8 {
         return Err("Chunk 文件格式错误：数据长度不足".to_string());
     }
 
+    // 解析头部信息用于日志
     let width = u32::from_be_bytes([chunk_data[0], chunk_data[1], chunk_data[2], chunk_data[3]]);
     let height = u32::from_be_bytes([chunk_data[4], chunk_data[5], chunk_data[6], chunk_data[7]]);
-    let pixels = chunk_data[8..].to_vec();
+    let pixels_len = chunk_data.len() - 8;
 
-    let x = chunk_x * 1024; // chunk_size
-    let y = chunk_y * 1024; // chunk_size
+    let x = chunk_x * 2048; // chunk_size
+    let y = chunk_y * 2048; // chunk_size
 
     println!(
         "[RUST] Chunk ({}, {}) 从缓存加载成功: 位置({}, {}), 尺寸{}x{}, 像素数据{}字节",
-        chunk_x,
-        chunk_y,
-        x,
-        y,
-        width,
-        height,
-        pixels.len()
+        chunk_x, chunk_y, x, y, width, height, pixels_len
     );
 
     let end_time = get_time();
     println!(
-        "[RUST] Chunk ({}, {}) 获取完成: {}ms (总耗时: {}ms)",
+        "[RUST] Chunk ({}, {}) 零拷贝获取完成: {}ms (总耗时: {}ms)",
         chunk_x,
         chunk_y,
         end_time,
         end_time - start_time
     );
 
-    Ok(ChunkData {
-        chunk_x,
-        chunk_y,
-        x,
-        y,
-        width,
-        height,
-        pixels,
-    })
+    // 零拷贝返回：直接传递原始数据，避免序列化和反序列化
+    // 数据格式：宽度(4字节) + 高度(4字节) + 像素数据
+    // 前端可以直接解析这个格式，无需额外的JSON序列化开销
+    Ok(Response::new(chunk_data))
 }
 
 /// 清理 chunk 缓存
@@ -485,6 +507,39 @@ pub fn clear_chunk_cache() -> Result<String, String> {
     } else {
         Ok("Chunk 缓存不存在".to_string())
     }
+}
+
+/// 清理特定文件的 chunk 缓存
+#[tauri::command]
+pub fn clear_file_cache(file_path: String) -> Result<String, String> {
+    let cache_dir = Path::new(CHUNK_CACHE_DIR);
+    if !cache_dir.exists() {
+        return Ok("缓存目录不存在".to_string());
+    }
+
+    // 检查源文件信息文件是否存在
+    let source_info_file = cache_dir.join("source_info.json");
+    if !source_info_file.exists() {
+        return Ok("源文件信息不存在".to_string());
+    }
+
+    // 读取源文件信息
+    let source_info_content =
+        fs::read_to_string(&source_info_file).map_err(|e| format!("读取源文件信息失败: {}", e))?;
+
+    let source_info: serde_json::Value = serde_json::from_str(&source_info_content)
+        .map_err(|e| format!("解析源文件信息失败: {}", e))?;
+
+    // 检查文件路径是否匹配
+    let cached_path = source_info.get("file_path").and_then(|v| v.as_str());
+    if cached_path != Some(&file_path) {
+        return Ok("缓存文件与指定文件不匹配".to_string());
+    }
+
+    // 清理整个缓存目录
+    fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存目录失败: {}", e))?;
+    println!("[RUST] 文件 {} 的缓存已清理", file_path);
+    Ok(format!("文件 {} 的缓存已清理", file_path))
 }
 
 /// 手动触发预处理和缓存（用于测试或强制更新）
@@ -534,7 +589,7 @@ fn process_single_chunk_parallel(
     rgba_img: &image::RgbaImage,
     chunk_info: &ChunkInfo,
     cache_dir: &Path,
-    chunk_size: u32,
+    _chunk_size: u32,
 ) -> Result<(), String> {
     let chunk_start = get_time();
 
@@ -547,113 +602,72 @@ fn process_single_chunk_parallel(
         chunk_info.height,
     );
 
-    // 保存 chunk 到文件
+    // 保存 chunk 到文件（使用内存映射优化）
     let chunk_filename = format!("chunk_{}_{}.bin", chunk_info.chunk_x, chunk_info.chunk_y);
     let chunk_filepath = cache_dir.join(&chunk_filename);
 
-    // 写入 chunk 数据：宽度(4字节) + 高度(4字节) + 像素数据
-    // 预分配内存，避免动态扩容
-    let mut chunk_data = Vec::with_capacity(8 + pixels.len());
-    chunk_data.extend_from_slice(&chunk_info.width.to_be_bytes());
-    chunk_data.extend_from_slice(&chunk_info.height.to_be_bytes());
-    chunk_data.extend_from_slice(&pixels);
+    // 计算chunk文件大小：宽度(4字节) + 高度(4字节) + 像素数据
+    let chunk_file_size = 8 + pixels.len() as u64;
 
-    fs::write(&chunk_filepath, chunk_data).map_err(|e| {
+    // 创建文件并设置大小
+    let chunk_file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(&chunk_filepath)
+        .map_err(|e| {
+            format!(
+                "创建 chunk ({}, {}) 文件失败: {}",
+                chunk_info.chunk_x, chunk_info.chunk_y, e
+            )
+        })?;
+
+    // 设置文件大小
+    chunk_file.set_len(chunk_file_size).map_err(|e| {
         format!(
-            "保存 chunk ({}, {}) 失败: {}",
+            "设置 chunk ({}, {}) 文件大小失败: {}",
+            chunk_info.chunk_x, chunk_info.chunk_y, e
+        )
+    })?;
+
+    // 创建内存映射
+    let mmap = unsafe {
+        MmapOptions::new().map_mut(&chunk_file).map_err(|e| {
+            format!(
+                "创建 chunk ({}, {}) 内存映射失败: {}",
+                chunk_info.chunk_x, chunk_info.chunk_y, e
+            )
+        })?
+    };
+
+    // 写入数据到内存映射
+    let mut mmap_guard = mmap;
+
+    // 写入头部信息
+    mmap_guard[0..4].copy_from_slice(&chunk_info.width.to_be_bytes());
+    mmap_guard[4..8].copy_from_slice(&chunk_info.height.to_be_bytes());
+
+    // 写入像素数据
+    mmap_guard[8..].copy_from_slice(&pixels);
+
+    // 同步到磁盘
+    mmap_guard.flush().map_err(|e| {
+        format!(
+            "同步 chunk ({}, {}) 到磁盘失败: {}",
             chunk_info.chunk_x, chunk_info.chunk_y, e
         )
     })?;
 
     let chunk_end = get_time();
     println!(
-        "[RUST] Chunk ({}, {}) 并行处理完成: {}ms (耗时: {}ms), 像素: {}",
+        "[RUST] Chunk ({}, {}) 内存映射处理完成: {}ms (耗时: {}ms), 像素: {}, 文件大小: {} 字节",
         chunk_info.chunk_x,
         chunk_info.chunk_y,
         chunk_end,
         chunk_end - chunk_start,
-        pixels.len() / 4
-    );
-
-    Ok(())
-}
-
-/// 计算内存映射文件的总大小
-fn calculate_total_mmap_size(chunks: &[ChunkInfo]) -> u64 {
-    let mut total_size = 0u64;
-
-    for chunk in chunks {
-        // 每个 chunk 的头部：宽度(4字节) + 高度(4字节) + 像素数据
-        let pixel_count = (chunk.width * chunk.height) as u64;
-        let chunk_size = 8 + (pixel_count * 4); // 8字节头部 + RGBA像素数据
-        total_size += chunk_size;
-    }
-
-    total_size
-}
-
-/// 处理单个 chunk 并写入内存映射
-fn process_chunk_to_mmap(
-    rgba_img: &image::RgbaImage,
-    chunk_info: &ChunkInfo,
-    mmap_arc: &Arc<Mutex<MmapMut>>,
-    chunk_index: usize,
-    all_chunks: &[ChunkInfo],
-) -> Result<(), String> {
-    let chunk_start = get_time();
-
-    // 计算在内存映射中的偏移位置
-    let mut offset = 0u64;
-    for i in 0..chunk_index {
-        let chunk = &all_chunks[i];
-        let pixel_count = (chunk.width * chunk.height) as u64;
-        let chunk_size = 8 + (pixel_count * 4);
-        offset += chunk_size;
-    }
-
-    // 提取指定区域的像素数据（优化版本）
-    let pixels = extract_chunk_pixels_optimized(
-        rgba_img,
-        chunk_info.x,
-        chunk_info.y,
-        chunk_info.width,
-        chunk_info.height,
-    );
-
-    // 计算当前 chunk 的大小
-    let chunk_size = 8 + pixels.len() as u64;
-
-    // 直接写入内存映射，实现零拷贝
-    let start_offset = offset as usize;
-    let end_offset = (offset + chunk_size) as usize;
-
-    // 写入头部信息
-    let width_bytes = chunk_info.width.to_be_bytes();
-    let height_bytes = chunk_info.height.to_be_bytes();
-
-    // 获取内存映射的锁并写入数据
-    let mut mmap_guard = mmap_arc
-        .lock()
-        .map_err(|e| format!("获取内存映射锁失败: {}", e))?;
-
-    mmap_guard[start_offset..start_offset + 4].copy_from_slice(&width_bytes);
-    mmap_guard[start_offset + 4..start_offset + 8].copy_from_slice(&height_bytes);
-
-    // 写入像素数据
-    mmap_guard[start_offset + 8..end_offset].copy_from_slice(&pixels);
-
-    // 释放锁
-    drop(mmap_guard);
-
-    let chunk_end = get_time();
-    println!(
-        "[RUST] Chunk ({}, {}) 内存映射写入完成: {}ms (耗时: {}ms), 偏移: {}, 大小: {} 字节",
-        chunk_info.chunk_x,
-        chunk_info.chunk_y,
-        chunk_end,
-        chunk_end - chunk_start,
-        offset,
-        chunk_size
+        pixels.len() / 4,
+        chunk_file_size
     );
 
     Ok(())

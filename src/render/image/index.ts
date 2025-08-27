@@ -125,8 +125,6 @@ async function getImage() {
   }
 }
 
-getImage();
-
 // 初始化滚轮事件（当 DOM 加载完成后）
 document.addEventListener("DOMContentLoaded", () => {
   setupWheelEvent();

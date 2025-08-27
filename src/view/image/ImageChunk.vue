@@ -1,11 +1,34 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { onMounted, ref } from 'vue';
 import { ChunkManager, ChunkStatus } from "@/render/image/chunk-manager";
 import webglUtils from "@/utils/webgl";
 import { getTime } from "@/utils/time";
+import { open } from '@tauri-apps/plugin-dialog';
 
 // 创建 chunk 管理器
 const chunkManager = new ChunkManager();
+
+// 自定义文件类型
+interface SelectedFile {
+  name: string;
+  path: string;
+  size: number;
+}
+
+// 状态管理
+const isInitialized = ref(false);
+const isProcessing = ref(false);
+const selectedFile = ref<SelectedFile | null>(null);
+const statusMessage = ref('请选择图片文件');
+const statusColor = ref('#FFC107');
+
+// DOM引用
+const fileInputRef = ref<HTMLInputElement | null>(null);
+
+// 触发文件选择
+function triggerFileSelect() {
+  handleFileSelect();
+}
 
 // 初始化 WebGL
 let canvas: HTMLCanvasElement | null = null;
@@ -15,7 +38,95 @@ let vao: WebGLVertexArrayObject | null = null;
 let positionBuffer: WebGLBuffer | null = null;
 let texCoordBuffer: WebGLBuffer | null = null;
 
-// 主函数
+// 文件选择处理
+async function handleFileSelect() {
+  try {
+    // 根据Tauri v2文档，使用正确的导入方式
+    const selectedPath = await open({
+      title: '选择要处理的图片文件',
+      directory: false,
+      multiple: false,
+      filters: [
+        {
+          name: '图片文件',
+          extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'webp']
+        }
+      ]
+    });
+
+    if (!selectedPath || Array.isArray(selectedPath)) {
+      statusMessage.value = '未选择文件';
+      statusColor.value = '#FF6B6B';
+      return;
+    }
+
+    // 设置选中的文件信息
+    selectedFile.value = {
+      name: selectedPath.split('/').pop() || selectedPath.split('\\').pop() || '未知文件',
+      path: selectedPath,
+      size: 0 // 我们无法直接获取文件大小，但这不是必需的
+    };
+
+    statusMessage.value = `已选择: ${selectedFile.value.name}`;
+    statusColor.value = '#4CAF50';
+
+    processSelectedImage();
+
+  } catch (error) {
+    console.error('[IMAGE_VIEWER] 文件选择失败:', error);
+    statusMessage.value = '文件选择失败，请检查Tauri配置';
+    statusColor.value = '#FF6B6B';
+  }
+}
+
+// 处理选择的图片
+async function processSelectedImage() {
+  if (!selectedFile.value) {
+    statusMessage.value = '请先选择图片文件';
+    statusColor.value = '#FF6B6B';
+    return;
+  }
+
+  try {
+    isProcessing.value = true;
+    statusMessage.value = '正在处理图片...';
+    statusColor.value = '#FFC107';
+
+    // 初始化 WebGL（如果还没有初始化）
+    if (!isInitialized.value) {
+      await initializeWebGL();
+      chunkManager.setWebGLContext(gl!);
+      chunkManager.setOnChunkReady((chunk) => {
+        console.log(`[IMAGE_VIEWER] Chunk ${chunk.id} 就绪，立即渲染`);
+        renderChunks();
+      });
+      isInitialized.value = true;
+    }
+
+    // 调用后端处理图片
+    const { invoke } = await import('@tauri-apps/api/core');
+    const metadata = await invoke('process_user_image', { filePath: selectedFile.value.path });
+    console.log('[IMAGE_VIEWER] 图片处理完成:', metadata);
+
+    // 初始化 chunks
+    await chunkManager.initializeChunks();
+
+    // 开始加载 chunks
+    await loadAllChunks();
+
+    statusMessage.value = '图片处理完成，开始加载chunks...';
+    statusColor.value = '#4CAF50';
+
+  } catch (error) {
+    console.error('[IMAGE_VIEWER] 处理图片失败:', error);
+    statusMessage.value = `处理失败: ${error instanceof Error ? error.message : String(error)}`;
+    statusColor.value = '#FF6B6B';
+  } finally {
+    isProcessing.value = false;
+  }
+}
+
+// 主函数（现在由用户手动触发）
 async function main() {
   try {
     // 初始化 WebGL
@@ -31,45 +142,14 @@ async function main() {
       renderChunks();
     });
 
-    // 初始化 chunk 信息
-    console.log('[IMAGE_VIEWER] 开始初始化 chunks...');
-    try {
-      await chunkManager.initializeChunks();
-    } catch (error) {
-      console.error('[IMAGE_VIEWER] Chunk 初始化失败:', error);
-      // 显示用户友好的错误信息
-      const statusElement = document.getElementById('status');
-      if (statusElement) {
-        statusElement.textContent = `初始化失败: ${error instanceof Error ? error.message : String(error)}`;
-        statusElement.style.color = '#FF6B6B';
-      }
-      throw error; // 重新抛出错误，阻止继续执行
-    }
-
-    // 开始加载所有 chunks
-    console.log('[IMAGE_VIEWER] 开始加载 chunks...');
-    await loadAllChunks();
-
-    console.log('[IMAGE_VIEWER] 所有 chunks 加载完成');
+    isInitialized.value = true;
+    statusMessage.value = 'WebGL初始化完成，请选择图片文件';
+    statusColor.value = '#4CAF50';
 
   } catch (error) {
     console.error('[IMAGE_VIEWER] 初始化失败:', error);
-    // 显示用户友好的错误信息
-    const statusElement = document.getElementById('status');
-    if (statusElement) {
-      statusElement.style.color = '#FF6B6B';
-      if (error instanceof Error && error.message.includes('图片文件不存在')) {
-        statusElement.textContent = '错误: 找不到图片文件，请检查 public/tissue_hires_image.png 是否存在';
-      } else {
-        statusElement.textContent = `启动失败: ${error instanceof Error ? error.message : String(error)}`;
-      }
-    }
-
-    // 显示重试按钮
-    const retryBtn = document.getElementById('retry-btn');
-    if (retryBtn) {
-      retryBtn.style.display = 'inline-block';
-    }
+    statusMessage.value = `WebGL初始化失败: ${error instanceof Error ? error.message : String(error)}`;
+    statusColor.value = '#FF6B6B';
   }
 }
 
@@ -166,9 +246,9 @@ async function loadAllChunks(): Promise<void> {
     return;
   }
 
-  // 计算网格尺寸
-  const gridWidth = Math.ceil(metadata.total_width / 1024); // 假设 chunk 大小为 1024x1024
-  const gridHeight = Math.ceil(metadata.total_height / 1024);
+  // 计算网格尺寸 - 使用元数据中的实际 chunk_size
+  const gridWidth = Math.ceil(metadata.total_width / metadata.chunk_size);
+  const gridHeight = Math.ceil(metadata.total_height / metadata.chunk_size);
   console.log(`[IMAGE_VIEWER] Chunk 网格: ${gridWidth}x${gridHeight}`);
 
   // 创建空间间隔的批次
@@ -456,11 +536,26 @@ onMounted(() => {
   <div class="image-viewer">
     <div class="info-panel">
       <h2>图片分块加载</h2>
-      <div id="status">初始化中...</div>
-      <div id="progress" class="progress-bar">
+
+      <!-- 文件选择区域 -->
+      <div class="file-selection">
+        <input type="file" id="file-input" accept="image/*" @change="handleFileSelect" style="display: none;"
+          ref="fileInputRef" />
+        <button @click="triggerFileSelect" :disabled="isProcessing" class="file-select-btn">
+          选择图片文件
+        </button>
+      </div>
+
+      <!-- 状态显示 -->
+      <div id="status" :style="{ color: statusColor }">{{ statusMessage }}</div>
+
+      <!-- 进度条 -->
+      <div id="progress" class="progress-bar" v-if="isInitialized">
         <div class="progress-fill"></div>
       </div>
-      <div class="controls">
+
+      <!-- 控制按钮 -->
+      <div class="controls" v-if="isInitialized">
         <button @click="forcePreprocess">强制预处理</button>
         <button @click="clearCache">清理缓存</button>
         <button @click="retryInitialization" id="retry-btn" style="display: none;">重试</button>
@@ -544,6 +639,66 @@ onMounted(() => {
 
 .controls button:last-child:hover {
   background: #D32F2F;
+}
+
+.file-selection {
+  margin-bottom: 15px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+.file-select-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  background: #2196F3;
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  margin-bottom: 10px;
+}
+
+.file-select-btn:hover:not(:disabled) {
+  background: #1976D2;
+}
+
+.file-select-btn:disabled {
+  background: #9E9E9E;
+  cursor: not-allowed;
+}
+
+.selected-file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.selected-file span {
+  color: #4CAF50;
+  font-weight: 500;
+}
+
+.process-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  background: #4CAF50;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.3s ease;
+}
+
+.process-btn:hover:not(:disabled) {
+  background: #45A049;
+}
+
+.process-btn:disabled {
+  background: #9E9E9E;
+  cursor: not-allowed;
 }
 
 canvas {
