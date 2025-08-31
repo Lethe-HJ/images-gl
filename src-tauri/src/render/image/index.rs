@@ -5,7 +5,34 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
+use std::sync::OnceLock;
 use tauri::ipc::Response;
+
+// 全局线程池，避免重复创建
+static THREAD_POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+
+// 获取全局线程池
+fn get_thread_pool() -> &'static rayon::ThreadPool {
+    THREAD_POOL.get_or_init(|| {
+        let num_cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+
+        // 对于 I/O 密集型任务，线程数可以比 CPU 核心数多一些
+        // 但不要太多，避免过多的上下文切换
+        let optimal_threads = (num_cpus * 2).min(8);
+
+        println!(
+            "[RUST] 系统 CPU 核心数: {}, 设置线程池大小: {}",
+            num_cpus, optimal_threads
+        );
+
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(optimal_threads)
+            .build()
+            .unwrap()
+    })
+}
 
 // Chunk 缓存目录
 const CHUNK_CACHE_DIR: &str = "chunk_cache";
@@ -357,13 +384,29 @@ fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadat
     Ok(metadata)
 }
 
-/// 获取特定 chunk 的像素数据（零拷贝版本）
+/// 获取特定 chunk 的像素数据（零拷贝版本，支持并行执行）
 #[tauri::command]
 pub fn get_image_chunk(chunk_x: u32, chunk_y: u32, file_path: String) -> Result<Response, String> {
+    // 使用全局线程池让每个请求并行执行
+    // 这样前端多个 invoke 调用时，Rust 端可以并行处理
+    let result = get_thread_pool().install(|| get_image_chunk_sync(chunk_x, chunk_y, file_path));
+
+    // 零拷贝返回：直接传递原始数据，避免序列化和反序列化
+    // 数据格式：宽度(4字节) + 高度(4字节) + 像素数据
+    // 前端可以直接解析这个格式，无需额外的JSON序列化开销
+    result
+}
+
+/// 同步版本的 chunk 获取函数（在 rayon 线程中执行）
+fn get_image_chunk_sync(chunk_x: u32, chunk_y: u32, file_path: String) -> Result<Response, String> {
     let start_time = get_time();
     println!(
-        "[RUST] 开始获取 chunk ({}, {}) 从文件 {}: {}ms",
-        chunk_x, chunk_y, file_path, start_time
+        "[RUST] 开始获取 chunk ({}, {}) 从文件 {}: {}ms (线程: {:?})",
+        chunk_x,
+        chunk_y,
+        file_path,
+        start_time,
+        std::thread::current().id()
     );
 
     // 检查特定文件的缓存是否存在
@@ -399,17 +442,20 @@ pub fn get_image_chunk(chunk_x: u32, chunk_y: u32, file_path: String) -> Result<
     let y = chunk_y * 2048; // chunk_size
 
     println!(
-        "[RUST] Chunk ({}, {}) 从缓存加载成功: 位置({}, {}), 尺寸{}x{}, 像素数据{}字节",
-        chunk_x, chunk_y, x, y, width, height, pixels_len
+        "[RUST] Chunk ({}, {}) 从缓存加载成功: 位置({}, {}), 尺寸{}x{}, 像素数据{}字节 (线程: {:?})",
+        chunk_x, chunk_y, x, y, width, height, pixels_len, std::thread::current().id()
     );
 
     let end_time = get_time();
+    let processing_time = end_time - start_time;
+
     println!(
-        "[RUST] Chunk ({}, {}) 零拷贝获取完成: {}ms (总耗时: {}ms)",
+        "[RUST] Chunk ({}, {}) 零拷贝获取完成: {}ms (总耗时: {}ms) (线程: {:?})",
         chunk_x,
         chunk_y,
         end_time,
-        end_time - start_time
+        processing_time,
+        std::thread::current().id()
     );
 
     // 零拷贝返回：直接传递原始数据，避免序列化和反序列化

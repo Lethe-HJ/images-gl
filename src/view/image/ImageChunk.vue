@@ -4,6 +4,8 @@ import { ChunkManager, ChunkStatus, ImageMetadata } from "@/render/image/chunk-m
 import webglUtils from "@/utils/webgl";
 import { getTime } from "@/utils/time";
 import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from "@tauri-apps/api/core";
+
 
 // 创建 chunk 管理器
 const chunkManager = new ChunkManager();
@@ -470,7 +472,6 @@ function setRectangle(
 async function forcePreprocess() {
   try {
     console.log('[IMAGE_VIEWER] 手动触发强制预处理...');
-    const { invoke } = await import('@tauri-apps/api/core');
 
     if (!selectedFile.value?.path) {
       console.error('[IMAGE_VIEWER] 没有选择文件，无法强制预处理');
@@ -492,7 +493,6 @@ async function forcePreprocess() {
 async function clearCache() {
   try {
     console.log('[IMAGE_VIEWER] 清理缓存...');
-    const { invoke } = await import('@tauri-apps/api/core');
     await invoke('clear_chunk_cache');
     console.log('[IMAGE_VIEWER] 缓存已清理');
   } catch (error) {

@@ -1,3 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
+
 // Chunk 状态管理
 
 // Chunk 状态枚举
@@ -30,7 +32,12 @@ export interface ImageMetadata {
 }
 
 // 注意：ChunkData 接口已删除，现在直接处理二进制数据
-// 数据格式：宽度(4字节) + 高度(4字节) + RGBA像素数据
+// 数据格式：宽度(CHUNK_HEADER_SIZE/2字节) + 高度(CHUNK_HEADER_SIZE/2字节) + RGBA像素数据
+
+// 常量定义
+const CHUNK_HEADER_SIZE = 8; // chunk 头部大小：宽度(4字节) + 高度(4字节)
+const RGBA_BYTES_PER_PIXEL = 4; // 每个像素的字节数：RGBA = 4字节
+const MAX_REQUESTS = 6; // 最大并发请求数
 
 // 单个 Chunk 类
 export class ImageChunk {
@@ -94,7 +101,7 @@ export class ChunkManager {
   private chunks: Map<string, ImageChunk> = new Map();
   private metadata?: ImageMetadata;
   private gl?: WebGL2RenderingContext;
-  private maxConcurrentRequests = 3; // 最大并发请求数
+  private maxConcurrentRequests = MAX_REQUESTS; // 最大并发请求数
   private requestQueue: string[] = []; // 请求队列
   private activeRequests = 0; // 当前活跃请求数
   private onChunkReady?: (chunk: ImageChunk) => void; // 新增：chunk 就绪回调
@@ -155,7 +162,6 @@ export class ChunkManager {
       this.currentFilePath = filePath;
 
       // 调用 Rust 获取元数据
-      const { invoke } = await import("@tauri-apps/api/core");
       this.metadata = await invoke("get_image_metadata_for_file", {
         filePath: filePath,
       });
@@ -225,7 +231,6 @@ export class ChunkManager {
       console.log(`[CHUNK_MANAGER] 开始请求 chunk: ${chunkId}`);
 
       // 调用 Rust 获取 chunk 数据（零拷贝版本）
-      const { invoke } = await import("@tauri-apps/api/core");
       const rawData = await invoke("get_image_chunk", {
         chunkX: chunk.chunk_x,
         chunkY: chunk.chunk_y,
@@ -252,12 +257,12 @@ export class ChunkManager {
         );
       }
 
-      // 解析二进制数据：宽度(4字节) + 高度(4字节) + 像素数据
+      // 解析二进制数据：宽度(CHUNK_HEADER_SIZE/2字节) + 高度(CHUNK_HEADER_SIZE/2字节) + 像素数据
       console.log(`[CHUNK_MANAGER] 接收到原始数据: ${chunkData.length} 字节`);
 
-      if (chunkData.length < 8) {
+      if (chunkData.length < CHUNK_HEADER_SIZE) {
         throw new Error(
-          `Chunk 数据格式错误：数据长度不足 ${chunkData.length} 字节`
+          `Chunk 数据格式错误：数据长度不足 ${chunkData.length} 字节，至少需要 ${CHUNK_HEADER_SIZE} 字节`
         );
       }
 
@@ -272,17 +277,16 @@ export class ChunkManager {
 
       console.log(`[CHUNK_MANAGER] 解析的尺寸: ${width}x${height}`);
 
-      // 提取像素数据
-      const pixels = chunkData.slice(8);
-      console.log(`[CHUNK_MANAGER] 提取的像素数据: ${pixels.length} 字节`);
+      // 验证数据大小 - 不复制数据，直接使用原始数据
+      const expectedPixelsSize = width * height * RGBA_BYTES_PER_PIXEL;
+      const actualPixelsSize = chunkData.length - CHUNK_HEADER_SIZE; // 减去头部字节
+      console.log(
+        `[CHUNK_MANAGER] 期望像素大小: ${expectedPixelsSize} 字节，实际: ${actualPixelsSize} 字节`
+      );
 
-      // 验证数据大小
-      const expectedPixelsSize = width * height * 4; // RGBA = 4字节
-      console.log(`[CHUNK_MANAGER] 期望像素大小: ${expectedPixelsSize} 字节`);
-
-      if (pixels.length !== expectedPixelsSize) {
+      if (actualPixelsSize !== expectedPixelsSize) {
         throw new Error(
-          `Chunk 数据大小不匹配：期望 ${expectedPixelsSize} 字节，实际 ${pixels.length} 字节`
+          `Chunk 数据大小不匹配：期望 ${expectedPixelsSize} 字节，实际 ${actualPixelsSize} 字节`
         );
       }
 
@@ -290,10 +294,12 @@ export class ChunkManager {
       chunk.width = width;
       chunk.height = height;
 
-      chunk.setData(pixels);
+      // 直接传递原始数据，不复制
+      // 数据格式：宽度(CHUNK_HEADER_SIZE/2字节) + 高度(CHUNK_HEADER_SIZE/2字节) + RGBA像素数据
+      chunk.setData(chunkData);
 
       console.log(
-        `[CHUNK_MANAGER] Chunk ${chunkId} 数据获取成功: ${pixels.length} 字节`
+        `[CHUNK_MANAGER] Chunk ${chunkId} 数据获取成功: ${actualPixelsSize} 字节`
       );
 
       // 上传到 GPU
@@ -345,6 +351,8 @@ export class ChunkManager {
       );
 
       // 上传像素数据
+      // 数据格式：宽度(CHUNK_HEADER_SIZE/2字节) + 高度(CHUNK_HEADER_SIZE/2字节) + RGBA像素数据
+      // 使用 texImage2D 的 offset 参数，跳过头部字节，直接上传像素数据
       this.gl.texImage2D(
         this.gl.TEXTURE_2D,
         0,
@@ -354,7 +362,8 @@ export class ChunkManager {
         0,
         this.gl.RGBA,
         this.gl.UNSIGNED_BYTE,
-        chunk.data
+        chunk.data,
+        CHUNK_HEADER_SIZE // 偏移量：跳过头部字节，直接读取像素数据
       );
 
       chunk.setTexture(texture);

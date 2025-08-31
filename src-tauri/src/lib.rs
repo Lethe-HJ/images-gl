@@ -19,7 +19,7 @@ pub fn run() {
             get_image_chunk,
             clear_chunk_cache,
             clear_file_cache,
-            force_preprocess_chunks
+            force_preprocess_chunks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
