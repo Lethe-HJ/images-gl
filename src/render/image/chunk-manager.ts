@@ -98,6 +98,7 @@ export class ChunkManager {
   private requestQueue: string[] = []; // 请求队列
   private activeRequests = 0; // 当前活跃请求数
   private onChunkReady?: (chunk: ImageChunk) => void; // 新增：chunk 就绪回调
+  private currentFilePath?: string; // 当前处理的文件路径
 
   constructor() {
     console.log("[CHUNK_MANAGER] 初始化完成");
@@ -114,14 +115,50 @@ export class ChunkManager {
     console.log("[CHUNK_MANAGER] Chunk 就绪回调已设置");
   }
 
-  // 初始化 chunk 信息
-  public async initializeChunks(): Promise<void> {
+  // 初始化 chunk 信息（从已有元数据）
+  public async initializeChunksFromMetadata(
+    filePath: string,
+    metadata: ImageMetadata
+  ): Promise<void> {
     try {
-      console.log("[CHUNK_MANAGER] 开始获取图片元数据...");
+      console.log("[CHUNK_MANAGER] 从已有元数据初始化 chunks...", filePath);
+
+      // 保存当前文件路径
+      this.currentFilePath = filePath;
+
+      // 直接使用传入的元数据
+      this.metadata = metadata;
+
+      console.log(
+        `[CHUNK_MANAGER] 元数据设置成功: ${this.metadata.total_width}x${this.metadata.total_height}, 共 ${this.metadata.chunks.length} 个 chunks`
+      );
+
+      // 创建所有 chunk 对象
+      this.metadata.chunks.forEach((chunkInfo) => {
+        const chunk = new ImageChunk(chunkInfo);
+        this.chunks.set(chunk.id, chunk);
+      });
+
+      console.log("[CHUNK_MANAGER] Chunk 初始化完成");
+    } catch (error) {
+      console.error("[CHUNK_MANAGER] 初始化失败:", error);
+      throw error;
+    }
+  }
+
+  // 初始化 chunk 信息（从后端获取元数据）
+  public async initializeChunks(filePath: string): Promise<void> {
+    try {
+      console.log("[CHUNK_MANAGER] 开始获取图片元数据...", filePath);
+
+      // 保存当前文件路径
+      this.currentFilePath = filePath;
 
       // 调用 Rust 获取元数据
       const { invoke } = await import("@tauri-apps/api/core");
-      this.metadata = await invoke("get_image_metadata");
+      this.metadata = await invoke("get_image_metadata_for_file", {
+        filePath: filePath,
+      });
 
       console.log(
         `[CHUNK_MANAGER] 元数据获取成功: ${this.metadata.total_width}x${this.metadata.total_height}, 共 ${this.metadata.chunks.length} 个 chunks`
@@ -192,6 +229,7 @@ export class ChunkManager {
       const rawData = await invoke("get_image_chunk", {
         chunkX: chunk.chunk_x,
         chunkY: chunk.chunk_y,
+        filePath: this.currentFilePath,
       });
 
       console.log(`[CHUNK_MANAGER] 接收到的数据类型:`, typeof rawData);

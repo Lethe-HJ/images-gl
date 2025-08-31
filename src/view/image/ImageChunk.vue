@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { ChunkManager, ChunkStatus } from "@/render/image/chunk-manager";
+import { ChunkManager, ChunkStatus, ImageMetadata } from "@/render/image/chunk-manager";
 import webglUtils from "@/utils/webgl";
 import { getTime } from "@/utils/time";
 import { open } from '@tauri-apps/plugin-dialog';
@@ -105,11 +105,11 @@ async function processSelectedImage() {
 
     // 调用后端处理图片
     const { invoke } = await import('@tauri-apps/api/core');
-    const metadata = await invoke('process_user_image', { filePath: selectedFile.value.path });
+    const metadata = await invoke('process_user_image', { filePath: selectedFile.value.path }) as ImageMetadata;
     console.log('[IMAGE_VIEWER] 图片处理完成:', metadata);
 
-    // 初始化 chunks
-    await chunkManager.initializeChunks();
+    // 直接使用返回的元数据初始化 chunks，避免重复调用后端
+    await chunkManager.initializeChunksFromMetadata(selectedFile.value.path, metadata);
 
     // 开始加载 chunks
     await loadAllChunks();
@@ -471,11 +471,17 @@ async function forcePreprocess() {
   try {
     console.log('[IMAGE_VIEWER] 手动触发强制预处理...');
     const { invoke } = await import('@tauri-apps/api/core');
-    await invoke('force_preprocess_chunks');
+
+    if (!selectedFile.value?.path) {
+      console.error('[IMAGE_VIEWER] 没有选择文件，无法强制预处理');
+      return;
+    }
+
+    const metadata = await invoke('force_preprocess_chunks', { filePath: selectedFile.value.path }) as ImageMetadata;
     console.log('[IMAGE_VIEWER] 强制预处理完成，重新初始化...');
 
-    // 重新初始化
-    await chunkManager.initializeChunks();
+    // 使用返回的元数据重新初始化
+    await chunkManager.initializeChunksFromMetadata(selectedFile.value.path, metadata);
     await loadAllChunks();
   } catch (error) {
     console.error('[IMAGE_VIEWER] 强制预处理失败:', error);

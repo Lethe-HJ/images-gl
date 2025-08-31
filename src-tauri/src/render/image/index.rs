@@ -35,44 +35,6 @@ pub struct ImageMetadata {
 // 注意：ChunkData 结构体已删除，现在使用零拷贝方式直接返回原始数据
 // 数据格式：宽度(4字节) + 高度(4字节) + RGBA像素数据
 
-/// 获取图片的 chunk 元数据
-#[tauri::command]
-pub fn get_image_metadata() -> Result<ImageMetadata, String> {
-    let start_time = get_time();
-    println!("[RUST] 开始获取图片元数据: {}ms", start_time);
-
-    // 检查缓存是否存在
-    if check_chunk_cache_exists() {
-        println!("[RUST] 发现现有缓存，从缓存加载元数据");
-
-        // 从缓存文件加载元数据
-        let metadata_filepath = Path::new(CHUNK_CACHE_DIR).join("metadata.json");
-        let metadata_content = fs::read_to_string(metadata_filepath)
-            .map_err(|e| format!("读取缓存元数据失败: {}", e))?;
-
-        let metadata: ImageMetadata = serde_json::from_str(&metadata_content)
-            .map_err(|e| format!("解析缓存元数据失败: {}", e))?;
-
-        println!(
-            "[RUST] 从缓存加载元数据成功: {}x{}, 共 {} 个 chunks",
-            metadata.total_width,
-            metadata.total_height,
-            metadata.chunks.len()
-        );
-
-        return Ok(metadata);
-    }
-
-    println!("[RUST] 缓存不存在，开始预处理和缓存 chunks");
-
-    // 预处理并缓存所有 chunks
-    let metadata = preprocess_and_cache_chunks()?;
-
-    println!("[RUST] 预处理完成，元数据已缓存");
-
-    Ok(metadata)
-}
-
 /// 获取特定图片文件的 chunk 元数据
 #[tauri::command]
 pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, String> {
@@ -181,32 +143,6 @@ pub fn process_user_image(file_path: String) -> Result<ImageMetadata, String> {
     Ok(metadata)
 }
 
-/// 检查 chunk 缓存是否存在
-fn check_chunk_cache_exists() -> bool {
-    let cache_dir = Path::new(CHUNK_CACHE_DIR);
-    if !cache_dir.exists() {
-        return false;
-    }
-
-    // 检查元数据文件是否存在
-    let metadata_file = cache_dir.join("metadata.json");
-    if !metadata_file.exists() {
-        return false;
-    }
-
-    // 检查是否有 chunk 文件
-    if let Ok(entries) = fs::read_dir(cache_dir) {
-        let chunk_files: Vec<_> = entries
-            .filter_map(|entry| entry.ok())
-            .filter(|entry| entry.file_name().to_string_lossy().starts_with("chunk_"))
-            .collect();
-
-        return !chunk_files.is_empty();
-    }
-
-    false
-}
-
 /// 检查特定文件路径的 chunk 缓存是否存在
 fn check_file_cache_exists(file_path: &str) -> bool {
     let cache_dir = Path::new(CHUNK_CACHE_DIR);
@@ -254,22 +190,6 @@ fn check_file_cache_exists(file_path: &str) -> bool {
     }
 
     false
-}
-
-/// 预处理图片并缓存所有 chunks
-fn preprocess_and_cache_chunks() -> Result<ImageMetadata, String> {
-    let start_time = get_time();
-    println!("[RUST] 开始预处理和缓存 chunks: {}ms", start_time);
-
-    // 记录优化信息
-    println!(
-        "[RUST] 使用优化版本：预分配内存 + view 方法 + 批量像素提取 + 并行处理 + 内存映射零拷贝"
-    );
-
-    // 使用正确的相对路径 - 从当前工作目录开始
-    let file_path = "../public/tissue_hires_image.png";
-
-    preprocess_and_cache_chunks_from_path(file_path)
 }
 
 /// 预处理图片并缓存所有 chunks 从指定路径
@@ -439,16 +359,18 @@ fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadat
 
 /// 获取特定 chunk 的像素数据（零拷贝版本）
 #[tauri::command]
-pub fn get_image_chunk(chunk_x: u32, chunk_y: u32) -> Result<Response, String> {
+pub fn get_image_chunk(chunk_x: u32, chunk_y: u32, file_path: String) -> Result<Response, String> {
     let start_time = get_time();
     println!(
-        "[RUST] 开始获取 chunk ({}, {}): {}ms",
-        chunk_x, chunk_y, start_time
+        "[RUST] 开始获取 chunk ({}, {}) 从文件 {}: {}ms",
+        chunk_x, chunk_y, file_path, start_time
     );
 
-    // 检查缓存是否存在
-    if !check_chunk_cache_exists() {
-        return Err("Chunk 缓存不存在，请先调用 get_image_metadata 进行预处理".to_string());
+    // 检查特定文件的缓存是否存在
+    if !check_file_cache_exists(&file_path) {
+        return Err(
+            "Chunk 缓存不存在，请先调用 get_image_metadata_for_file 进行预处理".to_string(),
+        );
     }
 
     // 从缓存文件读取 chunk 数据
@@ -544,14 +466,14 @@ pub fn clear_file_cache(file_path: String) -> Result<String, String> {
 
 /// 手动触发预处理和缓存（用于测试或强制更新）
 #[tauri::command]
-pub fn force_preprocess_chunks() -> Result<ImageMetadata, String> {
-    println!("[RUST] 手动触发预处理和缓存");
+pub fn force_preprocess_chunks(file_path: String) -> Result<ImageMetadata, String> {
+    println!("[RUST] 手动触发预处理和缓存: {}", file_path);
 
     // 先清理现有缓存
-    let _ = clear_chunk_cache();
+    let _ = clear_file_cache(file_path.clone());
 
     // 重新预处理和缓存
-    let metadata = preprocess_and_cache_chunks()?;
+    let metadata = preprocess_and_cache_chunks_from_path(&file_path)?;
 
     println!("[RUST] 手动预处理完成");
     Ok(metadata)
