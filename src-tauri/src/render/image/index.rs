@@ -3,30 +3,80 @@ use image::GenericImageView;
 use memmap2::MmapOptions;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
+use std::cmp;
+use std::env;
 use std::fs;
+use std::io;
 use std::path::Path;
 use std::sync::OnceLock;
+use std::thread;
 use tauri::ipc::Response;
 
+/**
+ * NOTE 生命周期标注
+ * 'static 表示这个生命周期与程序运行时间相同 其中'字符用于标记生命周期
+ */
+
 // 全局线程池，避免重复创建
+/*
+ * OnceLock 类型来确保线程池只被初始化一次
+ * OnceLock 是 Rust 标准库提供的线程安全的一次性初始化容器 它存储的是 rayon 库的 ThreadPool 类型
+ *
+ * [语法]: static用于定义静态变量
+ */
 static THREAD_POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
 
 // 获取全局线程池
+/*
+ * 返回一个静态生命周期的线程池引用
+ */
 fn get_thread_pool() -> &'static rayon::ThreadPool {
+    /*
+     * NOTE: 闭包
+     * || { ... } - 不带参数的闭包
+     * |x| { ... } - 单参数闭包
+     * |x, y| { ... } - 多参数闭包
+     * 其中{}里面的内容如果是单行代码，则可以省略大括号
+     * 下面的|n| n.get() 相当于 |n| { n.get() }
+     */
+    /*
+     * get_or_init 方法确保线程池只被初始化一次
+     * 如果线程池已经存在，直接返回现有的线程池
+     * 如果不存在，则执行闭包中的初始化代码
+     * 如果获取失败，默认使用 4 个核心
+     */
     THREAD_POOL.get_or_init(|| {
-        let num_cpus = std::thread::available_parallelism()
+        let num_cpu = thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
 
-        // 对于 I/O 密集型任务，线程数可以比 CPU 核心数多一些
-        // 但不要太多，避免过多的上下文切换
-        let optimal_threads = (num_cpus * 2).min(8);
+        // 设置线程数为 CPU 核心数的 2 倍
+        // 但最大不超过 8 个线程
+        // 这是一个经验值，适用于 I/O 密集型任务
+        // 如果线程数太多 会导致过多的上下文切换
+
+        // NOTE - src/render/why.md 为什么过多的线程会导致过多的上下文切换 仔细解释一下其中的原理?
+        let optimal_threads = (num_cpu * 2).min(8);
+
+        /*
+         * NOTE 宏
+         * 在 Rust 中以 ! 结尾的都是宏
+         * 宏是一种代码生成器，在编译时展开
+         * 可以生成重复的代码，减少手动编写
+         * 比普通函数更灵活，可以接受可变数量的参数
+         */
 
         println!(
             "[RUST] 系统 CPU 核心数: {}, 设置线程池大小: {}",
-            num_cpus, optimal_threads
+            num_cpu, optimal_threads
         );
 
+        /*
+         * 使用 rayon 库的 ThreadPoolBuilder 创建线程池
+         * 设置线程数为之前计算的最优值
+         * build() 构建线程池
+         * unwrap() 在构建失败时会导致程序崩溃（在这种情况下是可以接受的，因为线程池是程序运行的基础设施）
+         */
         rayon::ThreadPoolBuilder::new()
             .num_threads(optimal_threads)
             .build()
@@ -34,8 +84,21 @@ fn get_thread_pool() -> &'static rayon::ThreadPool {
     })
 }
 
+/*
+ * NOTE &str: 字符串切片类型
+ * &str: 字符串切片类型，是一个不可变的字符串引用
+ */
+
 // Chunk 缓存目录
 const CHUNK_CACHE_DIR: &str = "chunk_cache";
+
+/*
+ * NOTE 派生宏
+ * #[derive(...)] 派生宏为结构体自动实现了多个特性：
+ * Debug: 用于调试输出
+ * Serialize, Deserialize: 支持 JSON 序列化和反序列化
+ * Clone: 允许创建结构体的深拷贝
+ */
 
 // Chunk 元数据结构
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -54,33 +117,81 @@ pub struct ImageMetadata {
     pub total_width: u32,       // 图片总宽度
     pub total_height: u32,      // 图片总高度
     pub chunk_size: u32,        // chunk 大小（正方形）
-    pub chunks_x: u32,          // X 方向的 chunk 数量
-    pub chunks_y: u32,          // Y 方向的 chunk 数量
+    pub col_count: u32,         // X 方向的 chunk 数量
+    pub row_count: u32,         // Y 方向的 chunk 数量
     pub chunks: Vec<ChunkInfo>, // 所有 chunk 信息
 }
 
-// 注意：ChunkData 结构体已删除，现在使用零拷贝方式直接返回原始数据
-// 数据格式：宽度(4字节) + 高度(4字节) + RGBA像素数据
+/**
+ * NOTE 文档注释与普通注释
+ * 在rust中 /// 作为文档注释 会出现在rustdoc生成的文档中
+ * 而 // 作为普通注释 不会出现在rustdoc生成的文档中
+ * 可以通过 rust doc 命令来生成文档
+ */
+
+/**
+ * NOTE Result
+ * Result<ImageMetadata, String>
+ * Result 是 Rust 标准库提供的泛型类型，用于表示可能成功或失败的操作
+ * ImageMetadata 是图片元数据结构
+ * String 是错误信息类型
+ *
+ * Result 类型用于处理可能出现错误的情况
+ * 如果操作成功，返回 Ok(ImageMetadata)
+ * 如果操作失败，返回 Err(String)
+ */
 
 /// 获取特定图片文件的 chunk 元数据
-#[tauri::command]
+/// # Arguments
+/// * `file_path` - 图片文件路径
+/// # Returns
+/// * `Result<ImageMetadata, String>` - 图片元数据或错误信息
+#[tauri::command] // 这个宏 声明了这个函数是 tauri command，表示这个函数可以被前端调用
 pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, String> {
     println!("[RUST] 开始获取图片元数据: {}", file_path);
 
     // 检查文件是否存在
-    if !std::path::Path::new(&file_path).exists() {
+    if !Path::new(&file_path).exists() {
         return Err(format!("图片文件不存在: {}", file_path));
     }
+
+    /*
+     * NOTE rust重要知识点 所有权  (硬核来袭🙀🙀🙀)
+     * 1. ownership 所有权
+     *      rust中一个变量只能被一个环境所拥有,这个环境可以是变量,函数参数,函数返回值,结构体字段等
+     *      所有权转移的过程称之为 ”move“ ”移动“
+     * 2. move 移动
+     *      a. ”move“会将所有权进行传递 传递之后 原来的变量将不再有效
+     *          如果想要继续使用原来的变量 需要使用 ”clone“ ”克隆“
+     *      b. ”move“时 栈上的数据会被复制
+     *         而堆上的数据会进行所有权转移 这部分数据不会进行拷贝
+     *      c. 变量的信息哪些位于栈上哪些位于堆上的数据:
+     *            以String类型举例 其指针、长度、容量等信息存放于栈上
+     *            实际的字符串内容位于堆上
+     *      d. 什么时候会发生 move
+     *            将一个变量赋值给另一个变量 比如使用“=”进行复制或者函数参数传递之类(还有很多...)
+     * 3. 引用 “&”
+     *      a. 引用的本质就是“指针”
+     *      b. 引用不会拥有所有权 不会发生所有权转移
+     * 4. 克隆 “clone”
+     *      a. 克隆会创建一个完全独立的新副本
+     *      b. 赋值时使用克隆 可以避免原来的值发生所有权转移 从而不可用
+     *      c. 克隆会消耗更多内存和计算资源
+     */
+
+    // NOTE 在Rust中 常用“&” 来传递参数 避免所有权转移
 
     // 检查是否有这个文件对应的缓存
     if check_file_cache_exists(&file_path) {
         println!("[RUST] 发现现有缓存，从缓存加载元数据");
 
-        // 从缓存文件加载元数据
+        // 从缓存文件加载元数据 缓存文件是json格式 位于缓存目录下 文件名为metadata.json
+        // TODO 这个地方 缓存文件是统一的一个 当已经被缓存过的文件多了之后 这个文件会变得很大 需要优化 最好是每个图片对应的metadata.json都不一样
         let metadata_filepath = Path::new(CHUNK_CACHE_DIR).join("metadata.json");
+        // 读取缓存文件成字符串
         let metadata_content = fs::read_to_string(metadata_filepath)
             .map_err(|e| format!("读取缓存元数据失败: {}", e))?;
-
+        // 将字符串反序列化为json
         let metadata: ImageMetadata = serde_json::from_str(&metadata_content)
             .map_err(|e| format!("解析缓存元数据失败: {}", e))?;
 
@@ -90,7 +201,7 @@ pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, S
             metadata.total_height,
             metadata.chunks.len()
         );
-
+        // 给前端返回元数据
         return Ok(metadata);
     }
 
@@ -111,12 +222,12 @@ pub fn process_user_image(file_path: String) -> Result<ImageMetadata, String> {
     println!("[RUST] 开始处理用户选择的图片: {}ms", file_path);
 
     // 检查文件是否存在
-    if !std::path::Path::new(&file_path).exists() {
+    if !Path::new(&file_path).exists() {
         return Err(format!("图片文件不存在: {}", file_path));
     }
 
     // 检查文件扩展名
-    let path = std::path::Path::new(&file_path);
+    let path = Path::new(&file_path);
     let extension = path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -220,31 +331,34 @@ fn check_file_cache_exists(file_path: &str) -> bool {
 }
 
 /// 预处理图片并缓存所有 chunks 从指定路径
+/// # Arguments
+/// * `file_path` - 图片文件路径
+/// # Returns
+/// * `Result<ImageMetadata, String>` - 图片元数据或错误信息
 fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadata, String> {
     let start_time = get_time();
     println!("[RUST] 开始预处理和缓存 chunks 从路径: {}ms", file_path);
 
-    // 图片解码优化：跳过格式检测，直接使用 PNG 解码器
     let decode_start = get_time();
 
     // 检查文件是否存在
-    if !std::path::Path::new(file_path).exists() {
+    if !Path::new(file_path).exists() {
         return Err(format!(
             "图片文件不存在: {} (当前工作目录: {:?})",
             file_path,
-            std::env::current_dir().unwrap_or_default()
+            env::current_dir().unwrap_or_default()
         ));
     }
 
-    // 直接使用 PNG 解码器，跳过格式检测
-    let file = std::fs::File::open(file_path)
+    let file = fs::File::open(file_path)
         .map_err(|e| format!("文件打开失败: {} (路径: {})", e, file_path))?;
-    let reader = std::io::BufReader::new(file);
+    let reader = io::BufReader::new(file);
 
-    // 使用 PNG 解码器，避免格式检测开销
+    // TODO 这里后续还会支持更加适合lod的图片格式 tiff
+    // 创建解码器
     let decoder =
         image::codecs::png::PngDecoder::new(reader).map_err(|e| format!("PNG解码失败: {}", e))?;
-
+    // 从解码器中获取动态image对象
     let img =
         image::DynamicImage::from_decoder(decoder).map_err(|e| format!("PNG解码失败: {}", e))?;
 
@@ -261,13 +375,48 @@ fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadat
     println!("[RUST] 图片尺寸: {}x{}", total_width, total_height);
 
     // 计算 chunk 信息
-    let chunk_size = 4096; // 增加 chunk 大小为 4096x4096，提高传输效率
-    let chunks_x = (total_width + chunk_size - 1) / chunk_size; // 向上取整
-    let chunks_y = (total_height + chunk_size - 1) / chunk_size; // 向上取整
+    // TODO 这个chunk可能不是最优的 后续需要进行实验 或者 这个尺寸应该是实时计算后确定的
+    let chunk_size = 4096; // 增加 chunk 大小为 4096x4096
+                           // 单个chunk的内存大小应该为 4096 * 4096 * 4 = 67,108,864 字节
+                           // 约等于 67MB
+
+    // NOTE rust中 u32类型的除法 会向下取整
+
+    // 下面推导一共需要多少行多少列chunk
+    // 先来符合直觉的推导思路
+    //
+    // 1. 先考虑特殊情况 图片宽度不是chunk_size的整数倍时 需要使用更多的chunk才能完全囊括
+    // -----------------
+    // |      |      |  .   |
+    // |      |      |  .   |
+    // -----------------
+    // 如图所示 实际图片宽度只有两个多chunk的宽度 但是仍然需要使用三个chunk才能完全囊括
+    // 此时表达式应该为 total_width / chunk_size + 1
+    //
+    // 2. 再考虑一般情况 图片宽度是chunk_size的整数倍时
+    // ---------------
+    // |      |      |
+    // |      |      |
+    // ---------------
+    // 此时表达式应该为 total_width / chunk_size
+    // 但是这样一来就没办法兼容情况1了 考虑将total_width减去1 这个时候情况2就转换成了情况1
+    // 如果本身就是在情况1的状况下total_width减去1不影响结果
+    //
+    // 因此 更加通用的表达式为 (total_width - 1) / chunk_size + 1 与下面的表达式一致
+
+    // 再考虑更加数学的推导思路
+    // total_width chunk_size col_count
+    //    401         200       3
+    //    400         200       2
+    //    399         200       2
+    //     0          200       0
+    // 归纳为 这应该如何归纳?
+    let col_count = (total_width + chunk_size - 1) / chunk_size; // 向上取整
+    let row_count = (total_height + chunk_size - 1) / chunk_size; // 向上取整
 
     println!(
         "[RUST] Chunk 配置: {}x{} chunks, 每个 {}x{}",
-        chunks_x, chunks_y, chunk_size, chunk_size
+        col_count, row_count, chunk_size, chunk_size
     );
 
     // 创建缓存目录
@@ -278,12 +427,12 @@ fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadat
 
     // 生成所有 chunk 信息
     let mut chunks = Vec::new();
-    for chunk_y in 0..chunks_y {
-        for chunk_x in 0..chunks_x {
+    for chunk_y in 0..row_count {
+        for chunk_x in 0..col_count {
             let x = chunk_x * chunk_size;
             let y = chunk_y * chunk_size;
-            let width = std::cmp::min(chunk_size, total_width - x);
-            let height = std::cmp::min(chunk_size, total_height - y);
+            let width = cmp::min(chunk_size, total_width - x);
+            let height = cmp::min(chunk_size, total_height - y);
 
             let chunk_info = ChunkInfo {
                 x,
@@ -347,8 +496,8 @@ fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadat
         total_width,
         total_height,
         chunk_size,
-        chunks_x,
-        chunks_y,
+        col_count,
+        row_count,
         chunks: chunks.clone(),
     };
 
@@ -364,8 +513,8 @@ fn preprocess_and_cache_chunks_from_path(file_path: &str) -> Result<ImageMetadat
         "total_width": total_width,
         "total_height": total_height,
         "chunk_size": chunk_size,
-        "chunks_x": chunks_x,
-        "chunks_y": chunks_y,
+        "col_count": col_count,
+        "row_count": row_count,
     });
     let source_info_json =
         serde_json::to_string(&source_info).map_err(|e| format!("序列化源文件信息失败: {}", e))?;
@@ -406,7 +555,7 @@ fn get_image_chunk_sync(chunk_x: u32, chunk_y: u32, file_path: String) -> Result
         chunk_y,
         file_path,
         start_time,
-        std::thread::current().id()
+        thread::current().id()
     );
 
     // 检查特定文件的缓存是否存在
@@ -443,7 +592,7 @@ fn get_image_chunk_sync(chunk_x: u32, chunk_y: u32, file_path: String) -> Result
 
     println!(
         "[RUST] Chunk ({}, {}) 从缓存加载成功: 位置({}, {}), 尺寸{}x{}, 像素数据{}字节 (线程: {:?})",
-        chunk_x, chunk_y, x, y, width, height, pixels_len, std::thread::current().id()
+        chunk_x, chunk_y, x, y, width, height, pixels_len, thread::current().id()
     );
 
     let end_time = get_time();
@@ -455,7 +604,7 @@ fn get_image_chunk_sync(chunk_x: u32, chunk_y: u32, file_path: String) -> Result
         chunk_y,
         end_time,
         processing_time,
-        std::thread::current().id()
+        thread::current().id()
     );
 
     // 零拷贝返回：直接传递原始数据，避免序列化和反序列化
