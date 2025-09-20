@@ -3,7 +3,7 @@
 mod render;
 mod utils;
 
-use crate::render::image::index::{
+use crate::render::image::{
     clear_chunk_cache, clear_file_cache, force_preprocess_chunks, get_image_chunk,
     get_image_metadata_for_file, process_user_image,
 };
