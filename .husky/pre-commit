@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# 检查Rust代码格式
+echo "🔍 Checking Rust code format..."
+cd src-tauri
+cargo fmt --check
+if [ $? -ne 0 ]; then
+  echo "❌ Rust code format check failed. Please run 'cargo fmt' to fix formatting issues."
+  exit 1
+fi
+
+# 检查Rust代码编译
+echo "🔍 Checking Rust code compilation..."
+cargo check
+if [ $? -ne 0 ]; then
+  echo "❌ Rust code compilation failed. Please fix compilation errors."
+  exit 1
+fi
+
+echo "✅ Pre-commit checks passed!"

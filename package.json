@@ -8,7 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "dev": "bash ./scripts/dev.sh"
+    "dev": "bash ./scripts/dev.sh",
+    "prepare": "husky"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -17,12 +18,37 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
     "@tauri-apps/cli": "^2",
     "@vitejs/plugin-vue": "^5.2.1",
+    "husky": "^9.1.7",
+    "parse-exr": "^1.0.2",
+    "sharp": "^0.34.3",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
-    "vue-tsc": "^2.1.10",
-    "parse-exr": "^1.0.2",
-    "sharp": "^0.34.3"
+    "vue-tsc": "^2.1.10"
+  },
+  "description": "高性能的图片加载器 想要达到的效果是 秒开1GB大小的图片 支持png tiff",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lethe-HJ/images-gl.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Lethe-HJ/images-gl/issues"
+  },
+  "homepage": "https://github.com/Lethe-HJ/images-gl#readme",
+  "commitlint": {
+    "extends": [
+      "@commitlint/config-conventional"
+    ],
+    "config": "commitlint.config.cjs"
   }
 }

@@ -2,11 +2,11 @@ use crate::utils::time::get_time;
 use std::path::Path;
 use tauri::ipc::Response;
 
-use super::config::get_thread_pool;
-use super::types::ImageMetadata;
 use super::cache::{check_file_cache_exists, clear_file_cache};
-use super::preprocessing::preprocess_and_cache_chunks;
 use super::chunk_processing::get_image_chunk_sync;
+use super::config::get_thread_pool;
+use super::preprocessing::preprocess_and_cache_chunks;
+use super::types::ImageMetadata;
 
 /// 处理用户选择的图片文件
 #[tauri::command]
