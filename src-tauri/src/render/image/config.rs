@@ -59,10 +59,7 @@ pub fn get_thread_pool() -> &'static rayon::ThreadPool {
          * 比普通函数更灵活，可以接受可变数量的参数
          */
 
-        println!(
-            "[RUST] 系统 CPU 核心数: {}, 设置线程池大小: {}",
-            num_cpu, optimal_threads
-        );
+        println!("[RUST] 系统 CPU 核心数: {num_cpu}, 设置线程池大小: {optimal_threads}");
 
         /*
          * 使用 rayon 库的 ThreadPoolBuilder 创建线程池

@@ -20,11 +20,11 @@ use super::types::{ChunkInfo, ImageMetadata};
 /// * `Result<ImageMetadata, String>` - 图片元数据或错误信息
 #[tauri::command] // 这个宏 声明了这个函数是 tauri command，表示这个函数可以被前端调用
 pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, String> {
-    println!("[RUST] 开始获取图片元数据: {}", file_path);
+    println!("[RUST] 开始获取图片元数据: {file_path}");
 
     // 检查文件是否存在
     if !Path::new(&file_path).exists() {
-        return Err(format!("图片文件不存在: {}", file_path));
+        return Err(format!("图片文件不存在: {file_path}"));
     }
 
     // 检查是否有这个文件对应的缓存
@@ -36,10 +36,10 @@ pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, S
         let metadata_filepath = Path::new(CHUNK_CACHE_DIR).join("metadata.json");
         // 读取缓存文件成字符串
         let metadata_content = fs::read_to_string(metadata_filepath)
-            .map_err(|e| format!("读取缓存元数据失败: {}", e))?;
+            .map_err(|e| format!("读取缓存元数据失败: {e}"))?;
         // 将字符串反序列化为json
         let metadata: ImageMetadata = serde_json::from_str(&metadata_content)
-            .map_err(|e| format!("解析缓存元数据失败: {}", e))?;
+            .map_err(|e| format!("解析缓存元数据失败: {e}"))?;
 
         println!(
             "[RUST] 从缓存加载元数据成功: {}x{}, 共 {} 个 chunks",
@@ -68,7 +68,7 @@ pub fn get_image_metadata_for_file(file_path: String) -> Result<ImageMetadata, S
 /// * `Result<ImageMetadata, String>` - 图片元数据或错误信息
 pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, String> {
     let start_time = get_time();
-    println!("[RUST] 开始预处理和缓存 chunks 从路径: {}ms", file_path);
+    println!("[RUST] 开始预处理和缓存 chunks 从路径: {file_path}ms");
 
     let decode_start = get_time();
 
@@ -81,17 +81,17 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
         ));
     }
 
-    let file = fs::File::open(file_path)
-        .map_err(|e| format!("文件打开失败: {} (路径: {})", e, file_path))?;
+    let file =
+        fs::File::open(file_path).map_err(|e| format!("文件打开失败: {e} (路径: {file_path})"))?;
     let reader = io::BufReader::new(file);
 
     // TODO 这里后续还会支持更加适合lod的图片格式 tiff
     // 创建解码器
     let decoder =
-        image::codecs::png::PngDecoder::new(reader).map_err(|e| format!("PNG解码失败: {}", e))?;
+        image::codecs::png::PngDecoder::new(reader).map_err(|e| format!("PNG解码失败: {e}"))?;
     // 从解码器中获取动态image对象
     let img =
-        image::DynamicImage::from_decoder(decoder).map_err(|e| format!("PNG解码失败: {}", e))?;
+        image::DynamicImage::from_decoder(decoder).map_err(|e| format!("PNG解码失败: {e}"))?;
 
     let decode_end = get_time();
 
@@ -103,7 +103,7 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
 
     // 获取图片尺寸
     let (total_width, total_height) = img.dimensions();
-    println!("[RUST] 图片尺寸: {}x{}", total_width, total_height);
+    println!("[RUST] 图片尺寸: {total_width}x{total_height}");
 
     // NOTE rust中 u32类型的除法 会向下取整
 
@@ -140,18 +140,17 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
     // 如果本身就是在情况1的状况下total_width减去1不影响结果
     // 因此 更加通用的表达式为 (total_width - 1) / chunk_size + 1 与代码里面的表达式等效
 
-    let col_count = (total_width + CHUNK_SIZE_X - 1) / CHUNK_SIZE_X;
-    let row_count = (total_height + CHUNK_SIZE_Y - 1) / CHUNK_SIZE_Y;
+    let col_count = total_width.div_ceil(CHUNK_SIZE_X);
+    let row_count = total_height.div_ceil(CHUNK_SIZE_Y);
 
     println!(
-        "[RUST] Chunk 配置: {}x{} chunks, 每个 {}x{}",
-        col_count, row_count, CHUNK_SIZE_X, CHUNK_SIZE_Y
+        "[RUST] Chunk 配置: {col_count}x{row_count} chunks, 每个 {CHUNK_SIZE_X}x{CHUNK_SIZE_Y}"
     );
 
     // 创建缓存目录
     let cache_dir = Path::new(CHUNK_CACHE_DIR);
     if !cache_dir.exists() {
-        fs::create_dir(cache_dir).map_err(|e| format!("创建缓存目录失败: {}", e))?;
+        fs::create_dir(cache_dir).map_err(|e| format!("创建缓存目录失败: {e}"))?;
     }
 
     // NOTE
@@ -191,7 +190,7 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
 
     // 显示并行配置信息
     let num_threads = rayon::current_num_threads();
-    println!("[RUST] 并行配置：使用 {} 个线程", num_threads);
+    println!("[RUST] 并行配置：使用 {num_threads} 个线程");
 
     // 将图片转换为 RGBA8 格式（只转换一次，避免每个chunk重复转换）
     let rgba_conversion_start = get_time();
@@ -223,11 +222,11 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
     let total_chunks = chunks.len();
     for (i, result) in chunk_results.iter().enumerate() {
         if let Err(e) = result {
-            return Err(format!("Chunk {} 处理失败: {}", i, e));
+            return Err(format!("Chunk {i} 处理失败: {e}"));
         }
     }
 
-    println!("[RUST] 所有 {} 个 chunks 处理成功", total_chunks);
+    println!("[RUST] 所有 {total_chunks} 个 chunks 处理成功");
 
     // 保存元数据到文件
     let metadata = ImageMetadata {
@@ -241,10 +240,10 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
     };
 
     let metadata_json =
-        serde_json::to_string(&metadata).map_err(|e| format!("序列化元数据失败: {}", e))?;
+        serde_json::to_string(&metadata).map_err(|e| format!("序列化元数据失败: {e}"))?;
 
     let metadata_filepath = cache_dir.join("metadata.json");
-    fs::write(&metadata_filepath, metadata_json).map_err(|e| format!("保存元数据失败: {}", e))?;
+    fs::write(&metadata_filepath, metadata_json).map_err(|e| format!("保存元数据失败: {e}"))?;
 
     // 保存源文件信息
     let source_info = serde_json::json!({
@@ -257,10 +256,10 @@ pub fn preprocess_and_cache_chunks(file_path: &str) -> Result<ImageMetadata, Str
         "row_count": row_count,
     });
     let source_info_json =
-        serde_json::to_string(&source_info).map_err(|e| format!("序列化源文件信息失败: {}", e))?;
+        serde_json::to_string(&source_info).map_err(|e| format!("序列化源文件信息失败: {e}"))?;
     let source_info_filepath = cache_dir.join("source_info.json");
     fs::write(&source_info_filepath, source_info_json)
-        .map_err(|e| format!("保存源文件信息失败: {}", e))?;
+        .map_err(|e| format!("保存源文件信息失败: {e}"))?;
 
     let end_time = get_time();
     println!(

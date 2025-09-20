@@ -63,7 +63,7 @@ pub fn check_file_cache_exists(file_path: &str) -> bool {
 pub fn clear_chunk_cache() -> Result<String, String> {
     let cache_dir = Path::new(CHUNK_CACHE_DIR);
     if cache_dir.exists() {
-        fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存目录失败: {}", e))?;
+        fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存目录失败: {e}"))?;
         println!("[RUST] Chunk 缓存已清理");
         Ok("Chunk 缓存已清理".to_string())
     } else {
@@ -87,10 +87,10 @@ pub fn clear_file_cache(file_path: String) -> Result<String, String> {
 
     // 读取源文件信息
     let source_info_content =
-        fs::read_to_string(&source_info_file).map_err(|e| format!("读取源文件信息失败: {}", e))?;
+        fs::read_to_string(&source_info_file).map_err(|e| format!("读取源文件信息失败: {e}"))?;
 
     let source_info: serde_json::Value = serde_json::from_str(&source_info_content)
-        .map_err(|e| format!("解析源文件信息失败: {}", e))?;
+        .map_err(|e| format!("解析源文件信息失败: {e}"))?;
 
     // 检查文件路径是否匹配
     let cached_path = source_info.get("file_path").and_then(|v| v.as_str());
@@ -99,7 +99,7 @@ pub fn clear_file_cache(file_path: String) -> Result<String, String> {
     }
 
     // 清理整个缓存目录
-    fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存目录失败: {}", e))?;
-    println!("[RUST] 文件 {} 的缓存已清理", file_path);
-    Ok(format!("文件 {} 的缓存已清理", file_path))
+    fs::remove_dir_all(cache_dir).map_err(|e| format!("清理缓存目录失败: {e}"))?;
+    println!("[RUST] 文件 {file_path} 的缓存已清理");
+    Ok(format!("文件 {file_path} 的缓存已清理"))
 }

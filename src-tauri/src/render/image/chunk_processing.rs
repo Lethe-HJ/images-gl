@@ -180,16 +180,15 @@ pub fn get_image_chunk_sync(
     }
 
     // 从缓存文件读取 chunk 数据
-    let chunk_filename = format!("chunk_{}_{}.bin", chunk_x, chunk_y);
+    let chunk_filename = format!("chunk_{chunk_x}_{chunk_y}.bin");
     let chunk_filepath = Path::new(CHUNK_CACHE_DIR).join(&chunk_filename);
 
     if !chunk_filepath.exists() {
-        return Err(format!("Chunk 文件不存在: {:?}", chunk_filepath));
+        return Err(format!("Chunk 文件不存在: {chunk_filepath:?}"));
     }
 
     // 直接读取文件数据，零拷贝传输
-    let chunk_data =
-        fs::read(&chunk_filepath).map_err(|e| format!("读取 chunk 文件失败: {}", e))?;
+    let chunk_data = fs::read(&chunk_filepath).map_err(|e| format!("读取 chunk 文件失败: {e}"))?;
 
     // 验证数据格式：宽度(4字节) + 高度(4字节) + 像素数据
     if chunk_data.len() < 8 {

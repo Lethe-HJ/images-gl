@@ -416,8 +416,9 @@ export class ChunkManager {
   // 清理资源
   public cleanup(): void {
     if (this.gl) {
+      const gl = this.gl;
       this.chunks.forEach(chunk => {
-        chunk.cleanup(this.gl!);
+        chunk.cleanup(gl);
       });
     }
     this.chunks.clear();
