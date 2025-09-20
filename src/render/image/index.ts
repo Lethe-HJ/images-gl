@@ -1,7 +1,7 @@
-import webglUtils from "../../utils/webgl";
+import webglUtils from '../../utils/webgl';
 
 // 初始化滚轮事件（当 DOM 加载完成后）
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener('DOMContentLoaded', () => {
   setupWheelEvent();
 });
 
@@ -38,26 +38,26 @@ interface ViewState {
   offsetY: number;
 }
 
-let viewState: ViewState = {
+const viewState: ViewState = {
   scale: 1.0,
   offsetX: 0,
   offsetY: 0,
 };
 
-let canvas: HTMLCanvasElement | null = null;
-let gl: WebGL2RenderingContext | null = null;
+const canvas: HTMLCanvasElement | null = null;
+const gl: WebGL2RenderingContext | null = null;
 let program: WebGLProgram | null = null;
 let vao: WebGLVertexArrayObject | null = null;
 let positionBuffer: WebGLBuffer | null = null;
 let texCoordBuffer: WebGLBuffer | null = null;
-let texture: WebGLTexture | null = null;
+const texture: WebGLTexture | null = null;
 let currentImage: HTMLImageElement | ImageBitmap | null = null;
 let wheelEventSetup = false;
 
 // 初始化 WebGL 资源（除了纹理，纹理已经在 getImage 中创建）
 function initializeWebGLResources(image: HTMLImageElement | ImageBitmap): void {
   if (!canvas || !gl || !texture) {
-    console.error("WebGL 上下文或纹理未初始化");
+    console.error('WebGL 上下文或纹理未初始化');
     return;
   }
 
@@ -73,18 +73,18 @@ function initializeWebGLResources(image: HTMLImageElement | ImageBitmap): void {
   ]);
 
   if (!program) {
-    console.error("Failed to create WebGL program");
+    console.error('Failed to create WebGL program');
     return;
   }
 
   // look up where the vertex data needs to go.
-  const positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-  const texCoordAttributeLocation = gl.getAttribLocation(program, "a_texCoord");
+  const positionAttributeLocation = gl.getAttribLocation(program, 'a_position');
+  const texCoordAttributeLocation = gl.getAttribLocation(program, 'a_texCoord');
 
   // Create a vertex array object (attribute state)
   vao = gl.createVertexArray();
   if (!vao) {
-    console.error("Failed to create vertex array object");
+    console.error('Failed to create vertex array object');
     return;
   }
 
@@ -95,7 +95,7 @@ function initializeWebGLResources(image: HTMLImageElement | ImageBitmap): void {
   // it (2 triangles)
   positionBuffer = gl.createBuffer();
   if (!positionBuffer) {
-    console.error("Failed to create position buffer");
+    console.error('Failed to create position buffer');
     return;
   }
 
@@ -123,7 +123,7 @@ function initializeWebGLResources(image: HTMLImageElement | ImageBitmap): void {
   // provide texture coordinates for the rectangle.
   texCoordBuffer = gl.createBuffer();
   if (!texCoordBuffer) {
-    console.error("Failed to create texture coordinate buffer");
+    console.error('Failed to create texture coordinate buffer');
     return;
   }
 
@@ -205,8 +205,8 @@ function redraw(): void {
   if (vao) gl.bindVertexArray(vao);
 
   // 设置 uniforms
-  const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-  const imageLocation = gl.getUniformLocation(program, "u_image");
+  const resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+  const imageLocation = gl.getUniformLocation(program, 'u_image');
 
   gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
   gl.uniform1i(imageLocation, 0);
@@ -241,7 +241,7 @@ function setupWheelEvent(): void {
 
   const canvasElement = canvas; // 创建一个局部引用
 
-  canvasElement.addEventListener("wheel", (event) => {
+  canvasElement.addEventListener('wheel', event => {
     event.preventDefault();
 
     const delta = event.deltaY > 0 ? 0.9 : 1.1; // 滚轮向下缩小，向上放大

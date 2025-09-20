@@ -1,6 +1,6 @@
-const fs = require("fs");
-const path = require("path");
-const zlib = require("zlib");
+const fs = require('fs');
+const path = require('path');
+const zlib = require('zlib');
 
 // 完全简化的PNG生成器 - 只用于测试格式正确性
 class SimplePNGGenerator {
@@ -29,12 +29,12 @@ class SimplePNGGenerator {
     data.writeUInt8(0, 11); // filter method
     data.writeUInt8(0, 12); // interlace method
 
-    return this.createChunk("IHDR", data);
+    return this.createChunk('IHDR', data);
   }
 
   // 生成IDAT块（图片数据）
   async generateIDAT() {
-    const outputPath = path.join(__dirname, "simple_test.png");
+    const outputPath = path.join(__dirname, 'simple_test.png');
     const writeStream = fs.createWriteStream(outputPath);
 
     // 写入PNG头
@@ -50,12 +50,12 @@ class SimplePNGGenerator {
     await this.writeIDATChunk(writeStream, imageData);
 
     // 写入IEND块
-    writeStream.write(this.createChunk("IEND", Buffer.alloc(0)));
+    writeStream.write(this.createChunk('IEND', Buffer.alloc(0)));
 
     writeStream.end();
 
     return new Promise((resolve, reject) => {
-      writeStream.on("finish", () => {
+      writeStream.on('finish', () => {
         const stats = fs.statSync(outputPath);
         console.log(`\n✅ 简单PNG图片生成完成！`);
         console.log(`文件路径: ${outputPath}`);
@@ -64,7 +64,7 @@ class SimplePNGGenerator {
         resolve(outputPath);
       });
 
-      writeStream.on("error", reject);
+      writeStream.on('error', reject);
     });
   }
 
@@ -104,7 +104,7 @@ class SimplePNGGenerator {
           return;
         }
 
-        const chunk = this.createChunk("IDAT", compressedData);
+        const chunk = this.createChunk('IDAT', compressedData);
         writeStream.write(chunk);
         resolve();
       });
@@ -120,7 +120,7 @@ class SimplePNGGenerator {
     chunk.writeUInt32BE(length, 0);
 
     // 写入类型
-    chunk.write(type, 4, 4, "ascii");
+    chunk.write(type, 4, 4, 'ascii');
 
     // 写入数据
     data.copy(chunk, 8);
@@ -161,7 +161,7 @@ class SimplePNGGenerator {
   // 生成图片
   async generate() {
     try {
-      console.log("🚀 开始生成简单PNG图片...");
+      console.log('🚀 开始生成简单PNG图片...');
       console.log(`目标尺寸: ${this.width} x ${this.height}`);
 
       const startTime = Date.now();
@@ -175,7 +175,7 @@ class SimplePNGGenerator {
 
       return outputPath;
     } catch (error) {
-      console.error("❌ 生成失败:", error);
+      console.error('❌ 生成失败:', error);
       throw error;
     }
   }
@@ -188,7 +188,7 @@ async function main() {
     const generator = new SimplePNGGenerator(1024, 1024);
     await generator.generate();
   } catch (error) {
-    console.error("生成失败:", error);
+    console.error('生成失败:', error);
     process.exit(1);
   }
 }

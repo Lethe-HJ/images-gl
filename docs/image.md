@@ -59,7 +59,7 @@ data.extend_from_slice(&pixels);              // 剩余字节：像素数据
 ### 1. **接收数据**
 
 ```typescript
-const imageBuffer = await invoke("read_file");
+const imageBuffer = await invoke('read_file');
 ```
 
 - 调用 Rust 函数，接收 ArrayBuffer 数据
@@ -91,10 +91,10 @@ const pixels = new Uint8Array(data.slice(8));
 const imageData = new ImageData(new Uint8ClampedArray(pixels), width, height);
 
 // 通过临时 canvas 创建纹理
-const tempCanvas = document.createElement("canvas");
+const tempCanvas = document.createElement('canvas');
 tempCanvas.width = width;
 tempCanvas.height = height;
-const tempCtx = tempCanvas.getContext("2d");
+const tempCtx = tempCanvas.getContext('2d');
 tempCtx.putImageData(imageData, 0, 0);
 
 // 上传到 WebGL

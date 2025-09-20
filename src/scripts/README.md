@@ -31,11 +31,11 @@ node src/scripts/png-optimized.js
 ### 作为模块使用
 
 ```javascript
-const OptimizedPNGGenerator = require("./src/scripts/png-optimized.js");
+const OptimizedPNGGenerator = require('./src/scripts/png-optimized.js');
 
 const generator = new OptimizedPNGGenerator();
-generator.generate().then((outputPath) => {
-  console.log("图片生成完成:", outputPath);
+generator.generate().then(outputPath => {
+  console.log('图片生成完成:', outputPath);
 });
 ```
 

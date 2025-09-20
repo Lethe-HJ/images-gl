@@ -1,6 +1,6 @@
-const fs = require("fs");
-const path = require("path");
-const zlib = require("zlib");
+const fs = require('fs');
+const path = require('path');
+const zlib = require('zlib');
 
 // 优化的超大PNG图片生成器
 // 使用真正的zlib压缩，确保PNG文件有效
@@ -33,12 +33,12 @@ class OptimizedPNGGenerator {
     data.writeUInt8(0, 11); // filter method
     data.writeUInt8(0, 12); // interlace method
 
-    return this.createChunk("IHDR", data);
+    return this.createChunk('IHDR', data);
   }
 
   // 生成IDAT块（图片数据）
   async generateIDAT() {
-    const fileName = this.outputFileName || "large_image_optimized.png";
+    const fileName = this.outputFileName || 'large_image_optimized.png';
     const outputPath = path.join(__dirname, fileName);
     const writeStream = fs.createWriteStream(outputPath);
 
@@ -103,12 +103,12 @@ class OptimizedPNGGenerator {
     }
 
     // 写入IEND块
-    writeStream.write(this.createChunk("IEND", Buffer.alloc(0)));
+    writeStream.write(this.createChunk('IEND', Buffer.alloc(0)));
 
     writeStream.end();
 
     return new Promise((resolve, reject) => {
-      writeStream.on("finish", () => {
+      writeStream.on('finish', () => {
         const stats = fs.statSync(outputPath);
         console.log(`\n✅ PNG图片生成完成！`);
         console.log(`文件路径: ${outputPath}`);
@@ -123,7 +123,7 @@ class OptimizedPNGGenerator {
         resolve(outputPath);
       });
 
-      writeStream.on("error", reject);
+      writeStream.on('error', reject);
     });
   }
 
@@ -198,7 +198,7 @@ class OptimizedPNGGenerator {
           return;
         }
 
-        const chunk = this.createChunk("IDAT", compressedData);
+        const chunk = this.createChunk('IDAT', compressedData);
         writeStream.write(chunk);
         resolve();
       });
@@ -214,7 +214,7 @@ class OptimizedPNGGenerator {
     chunk.writeUInt32BE(length, 0);
 
     // 写入类型
-    chunk.write(type, 4, 4, "ascii");
+    chunk.write(type, 4, 4, 'ascii');
 
     // 写入数据
     data.copy(chunk, 8);
@@ -255,7 +255,7 @@ class OptimizedPNGGenerator {
   // 生成图片
   async generate() {
     try {
-      console.log("🚀 开始生成优化的超大PNG图片...");
+      console.log('🚀 开始生成优化的超大PNG图片...');
       console.log(`目标尺寸: ${this.width} x ${this.height}`);
       console.log(
         `原始数据大小: ${(this.totalBytes / 1024 / 1024 / 1024).toFixed(2)} GB`
@@ -273,7 +273,7 @@ class OptimizedPNGGenerator {
 
       return outputPath;
     } catch (error) {
-      console.error("❌ 生成失败:", error);
+      console.error('❌ 生成失败:', error);
       throw error;
     }
   }
@@ -289,30 +289,30 @@ function parseArguments() {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
-    if (arg === "--help" || arg === "-h") {
+    if (arg === '--help' || arg === '-h') {
       showHelp();
       process.exit(0);
-    } else if (arg === "--width" || arg === "-w") {
+    } else if (arg === '--width' || arg === '-w') {
       if (i + 1 < args.length) {
         width = parseInt(args[++i]);
         if (isNaN(width) || width <= 0) {
-          console.error("❌ 错误: 宽度必须是正整数");
+          console.error('❌ 错误: 宽度必须是正整数');
           process.exit(1);
         }
       }
-    } else if (arg === "--height" || arg === "-H") {
+    } else if (arg === '--height' || arg === '-H') {
       if (i + 1 < args.length) {
         height = parseInt(args[++i]);
         if (isNaN(height) || height <= 0) {
-          console.error("❌ 错误: 高度必须是正整数");
+          console.error('❌ 错误: 高度必须是正整数');
           process.exit(1);
         }
       }
-    } else if (arg === "--output" || arg === "-o") {
+    } else if (arg === '--output' || arg === '-o') {
       if (i + 1 < args.length) {
         outputName = args[++i];
       }
-    } else if (arg.startsWith("--")) {
+    } else if (arg.startsWith('--')) {
       console.error(`❌ 未知参数: ${arg}`);
       showHelp();
       process.exit(1);
@@ -372,7 +372,7 @@ async function main() {
 
     await generator.generate();
   } catch (error) {
-    console.error("❌ 生成失败:", error);
+    console.error('❌ 生成失败:', error);
     process.exit(1);
   }
 }

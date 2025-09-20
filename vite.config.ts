@@ -1,5 +1,5 @@
-import { defineConfig } from "vite";
-import vue from "@vitejs/plugin-vue";
+import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
@@ -11,13 +11,13 @@ export default defineConfig(() => ({
   // 路径别名配置
   resolve: {
     alias: {
-      "@": "/src",
+      '@': '/src',
     },
   },
 
   // Worker 配置
   worker: {
-    format: "es" as const,
+    format: 'es' as const,
     plugins: () => [],
   },
 
@@ -27,7 +27,7 @@ export default defineConfig(() => ({
       output: {
         // 确保 worker 文件被正确打包
         manualChunks: {
-          "image-worker": ["./src/render/image/worker/image-worker.ts"],
+          'image-worker': ['./src/render/image/worker/image-worker.ts'],
         },
       },
     },
@@ -44,14 +44,14 @@ export default defineConfig(() => ({
     host: host || false,
     hmr: host
       ? {
-          protocol: "ws",
+          protocol: 'ws',
           host,
           port: 1421,
         }
       : undefined,
     watch: {
       // 3. tell Vite to ignore watching `src-tauri`
-      ignored: ["**/src-tauri/**"],
+      ignored: ['**/src-tauri/**'],
     },
   },
 }));

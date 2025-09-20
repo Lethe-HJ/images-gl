@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 
-import { spawn } from "child_process";
-import fs from "fs";
-import path from "path";
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 
 /**
  * 检查ImageMagick是否已安装
  * @returns {Promise<boolean>}
  */
 async function checkImageMagick() {
-  return new Promise((resolve) => {
-    const magick = spawn("magick", ["--version"]);
+  return new Promise(resolve => {
+    const magick = spawn('magick', ['--version']);
 
-    magick.on("error", () => {
+    magick.on('error', () => {
       resolve(false);
     });
 
-    magick.on("close", (code) => {
+    magick.on('close', code => {
       resolve(code === 0);
     });
 
@@ -64,7 +64,7 @@ async function convertEXRtoPNGWithImageMagick(
     // 检查ImageMagick是否可用
     const hasImageMagick = await checkImageMagick();
     if (!hasImageMagick) {
-      throw new Error("ImageMagick未安装。请先安装：brew install imagemagick");
+      throw new Error('ImageMagick未安装。请先安装：brew install imagemagick');
     }
 
     // 获取输入文件信息
@@ -81,10 +81,10 @@ async function convertEXRtoPNGWithImageMagick(
     // 色调映射选项 - 修复全黑问题
     if (options.toneMapping !== false) {
       // 使用更好的色调映射参数
-      args.push("-colorspace", "RGB");
-      args.push("-auto-level");
-      args.push("-gamma", "2.2");
-      args.push("-contrast-stretch", "0.1%");
+      args.push('-colorspace', 'RGB');
+      args.push('-auto-level');
+      args.push('-gamma', '2.2');
+      args.push('-contrast-stretch', '0.1%');
     }
 
     // 尺寸调整
@@ -92,14 +92,14 @@ async function convertEXRtoPNGWithImageMagick(
       const resizeArg = [];
       if (options.width) resizeArg.push(options.width);
       if (options.height) resizeArg.push(options.height);
-      if (resizeArg.length === 1) resizeArg.push(""); // 保持宽高比
-      args.push("-resize", resizeArg.join("x"));
+      if (resizeArg.length === 1) resizeArg.push(''); // 保持宽高比
+      args.push('-resize', resizeArg.join('x'));
     }
 
     // 质量设置
     if (options.quality) {
       const quality = Math.max(1, Math.min(100, options.quality));
-      args.push("-quality", quality.toString());
+      args.push('-quality', quality.toString());
     }
 
     // 输出文件
@@ -107,10 +107,10 @@ async function convertEXRtoPNGWithImageMagick(
 
     // 执行转换
     return new Promise((resolve, reject) => {
-      const magick = spawn("magick", args);
+      const magick = spawn('magick', args);
 
-      let startTime = Date.now();
-      let progressBar = "";
+      const startTime = Date.now();
+      const progressBar = '';
       let lastProgressUpdate = 0;
 
       // 进度反馈 - 单行显示
@@ -119,7 +119,7 @@ async function convertEXRtoPNGWithImageMagick(
         const elapsedSeconds = (elapsed / 1000).toFixed(1);
 
         // 检查输出文件是否存在和大小变化
-        let fileStatus = "";
+        let fileStatus = '';
         let actualProgress = 0;
 
         try {
@@ -196,7 +196,7 @@ async function convertEXRtoPNGWithImageMagick(
         const barLength = 20;
         const filledLength = Math.floor((displayProgress / 100) * barLength);
         const bar =
-          "█".repeat(filledLength) + "░".repeat(barLength - filledLength);
+          '█'.repeat(filledLength) + '░'.repeat(barLength - filledLength);
 
         // 显示更详细的进度信息
         let progressText = `⏳ 转换中... [${bar}] ${displayProgress}% | 用时: ${elapsedSeconds}s`;
@@ -229,23 +229,23 @@ async function convertEXRtoPNGWithImageMagick(
         }
       }, 1000); // 每1秒更新一次
 
-      let stdout = "";
-      let stderr = "";
+      let stdout = '';
+      let stderr = '';
 
-      magick.stdout.on("data", (data) => {
+      magick.stdout.on('data', data => {
         stdout += data.toString();
       });
 
-      magick.stderr.on("data", (data) => {
+      magick.stderr.on('data', data => {
         stderr += data.toString();
       });
 
-      magick.on("close", (code) => {
+      magick.on('close', code => {
         clearInterval(progressInterval);
         const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
 
         // 清除进度条
-        process.stdout.write("\n");
+        process.stdout.write('\n');
 
         if (code === 0) {
           // 检查输出文件是否存在
@@ -266,10 +266,10 @@ async function convertEXRtoPNGWithImageMagick(
               outputPath,
               outputSize: outputStats.size,
               processingTime: totalTime,
-              compressionRatio: compressionRatio,
+              compressionRatio,
             });
           } else {
-            reject(new Error("转换完成但输出文件不存在"));
+            reject(new Error('转换完成但输出文件不存在'));
           }
         } else {
           console.error(`❌ 转换失败 (退出码: ${code})`);
@@ -284,27 +284,27 @@ async function convertEXRtoPNGWithImageMagick(
         }
       });
 
-      magick.on("error", (error) => {
+      magick.on('error', error => {
         clearInterval(progressInterval);
-        process.stdout.write("\n");
+        process.stdout.write('\n');
         reject(new Error(`启动ImageMagick失败: ${error.message}`));
       });
 
       // 设置超时
       const timeout = setTimeout(() => {
         clearInterval(progressInterval);
-        process.stdout.write("\n");
+        process.stdout.write('\n');
         magick.kill();
-        reject(new Error("转换超时，请检查文件大小和系统资源"));
+        reject(new Error('转换超时，请检查文件大小和系统资源'));
       }, 600000); // 10分钟超时
 
       // 清理超时定时器
-      magick.on("close", () => {
+      magick.on('close', () => {
         clearTimeout(timeout);
       });
     });
   } catch (error) {
-    console.error("❌ 转换失败:", error.message);
+    console.error('❌ 转换失败:', error.message);
     return {
       success: false,
       error: error.message,
@@ -327,12 +327,10 @@ async function batchConvertWithImageMagick(inputDir, outputDir, options = {}) {
 
     // 读取输入目录中的所有文件
     const files = fs.readdirSync(inputDir);
-    const exrFiles = files.filter((file) =>
-      file.toLowerCase().endsWith(".exr")
-    );
+    const exrFiles = files.filter(file => file.toLowerCase().endsWith('.exr'));
 
     if (exrFiles.length === 0) {
-      console.log("在输入目录中没有找到EXR文件");
+      console.log('在输入目录中没有找到EXR文件');
       return;
     }
 
@@ -342,7 +340,7 @@ async function batchConvertWithImageMagick(inputDir, outputDir, options = {}) {
     for (let i = 0; i < exrFiles.length; i++) {
       const file = exrFiles[i];
       const inputPath = path.join(inputDir, file);
-      const outputPath = path.join(outputDir, path.parse(file).name + ".png");
+      const outputPath = path.join(outputDir, `${path.parse(file).name}.png`);
 
       console.log(`\n🔄 [${i + 1}/${exrFiles.length}] 处理: ${file}`);
       const result = await convertEXRtoPNGWithImageMagick(
@@ -354,18 +352,18 @@ async function batchConvertWithImageMagick(inputDir, outputDir, options = {}) {
     }
 
     // 输出统计信息
-    console.log("\n=== 📊 批量转换完成 ===");
-    const successCount = results.filter((r) => r.success).length;
+    console.log('\n=== 📊 批量转换完成 ===');
+    const successCount = results.filter(r => r.success).length;
     const failCount = results.length - successCount;
 
     console.log(`✅ 成功: ${successCount} 个文件`);
     console.log(`❌ 失败: ${failCount} 个文件`);
 
     if (failCount > 0) {
-      console.log("\n失败的文件:");
+      console.log('\n失败的文件:');
       results
-        .filter((r) => !r.success)
-        .forEach((r) => {
+        .filter(r => !r.success)
+        .forEach(r => {
           console.log(`  - ${r.file}: ${r.error}`);
         });
     }
@@ -402,13 +400,13 @@ async function batchConvertWithImageMagick(inputDir, outputDir, options = {}) {
       console.log(`   平均压缩比: ${overallCompression}%`);
     }
   } catch (error) {
-    console.error("批量转换失败:", error.message);
+    console.error('批量转换失败:', error.message);
   }
 }
 
 // 命令行接口
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -447,10 +445,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(0);
   }
 
-  if (args[0] === "--batch") {
+  if (args[0] === '--batch') {
     // 批量转换模式
     if (args.length < 3) {
-      console.error("批量转换模式需要指定输入和输出目录");
+      console.error('批量转换模式需要指定输入和输出目录');
       process.exit(1);
     }
 
@@ -462,7 +460,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   } else {
     // 单个文件转换模式
     if (args.length < 2) {
-      console.error("需要指定输入和输出文件路径");
+      console.error('需要指定输入和输出文件路径');
       process.exit(1);
     }
 
@@ -486,16 +484,16 @@ function parseOptions(args) {
     const arg = args[i];
 
     switch (arg) {
-      case "--width":
+      case '--width':
         options.width = parseInt(args[++i]);
         break;
-      case "--height":
+      case '--height':
         options.height = parseInt(args[++i]);
         break;
-      case "--quality":
+      case '--quality':
         options.quality = parseInt(args[++i]);
         break;
-      case "--no-tone-mapping":
+      case '--no-tone-mapping':
         options.toneMapping = false;
         break;
     }

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue';
-import { ChunkManager, ChunkStatus, ImageMetadata } from "@/render/image/chunk-manager";
-import webglUtils from "@/utils/webgl";
-import { getTime } from "@/utils/time";
+import {
+  ChunkManager,
+  ChunkStatus,
+  ImageMetadata,
+} from '@/render/image/chunk-manager';
+import webglUtils from '@/utils/webgl';
+import { getTime } from '@/utils/time';
 import { open } from '@tauri-apps/plugin-dialog';
-import { invoke } from "@tauri-apps/api/core";
-
+import { invoke } from '@tauri-apps/api/core';
 
 // 创建 chunk 管理器
 const chunkManager = new ChunkManager();
@@ -51,9 +54,9 @@ async function handleFileSelect() {
       filters: [
         {
           name: '图片文件',
-          extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'webp']
-        }
-      ]
+          extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'webp'],
+        },
+      ],
     });
 
     if (!selectedPath || Array.isArray(selectedPath)) {
@@ -64,16 +67,18 @@ async function handleFileSelect() {
 
     // 设置选中的文件信息
     selectedFile.value = {
-      name: selectedPath.split('/').pop() || selectedPath.split('\\').pop() || '未知文件',
+      name:
+        selectedPath.split('/').pop() ||
+        selectedPath.split('\\').pop() ||
+        '未知文件',
       path: selectedPath,
-      size: 0 // 我们无法直接获取文件大小，但这不是必需的
+      size: 0, // 我们无法直接获取文件大小，但这不是必需的
     };
 
     statusMessage.value = `已选择: ${selectedFile.value.name}`;
     statusColor.value = '#4CAF50';
 
     processSelectedImage();
-
   } catch (error) {
     console.error('[IMAGE_VIEWER] 文件选择失败:', error);
     statusMessage.value = '文件选择失败，请检查Tauri配置';
@@ -98,7 +103,7 @@ async function processSelectedImage() {
     if (!isInitialized.value) {
       await initializeWebGL();
       chunkManager.setWebGLContext(gl!);
-      chunkManager.setOnChunkReady((chunk) => {
+      chunkManager.setOnChunkReady(chunk => {
         console.log(`[IMAGE_VIEWER] Chunk ${chunk.id} 就绪，立即渲染`);
         renderChunks();
       });
@@ -107,18 +112,22 @@ async function processSelectedImage() {
 
     // 调用后端处理图片
     const { invoke } = await import('@tauri-apps/api/core');
-    const metadata = await invoke('process_user_image', { filePath: selectedFile.value.path }) as ImageMetadata;
+    const metadata = (await invoke('process_user_image', {
+      filePath: selectedFile.value.path,
+    })) as ImageMetadata;
     console.log('[IMAGE_VIEWER] 图片处理完成:', metadata);
 
     // 直接使用返回的元数据初始化 chunks，避免重复调用后端
-    await chunkManager.initializeChunksFromMetadata(selectedFile.value.path, metadata);
+    await chunkManager.initializeChunksFromMetadata(
+      selectedFile.value.path,
+      metadata
+    );
 
     // 开始加载 chunks
     await loadAllChunks();
 
     statusMessage.value = '图片处理完成，开始加载chunks...';
     statusColor.value = '#4CAF50';
-
   } catch (error) {
     console.error('[IMAGE_VIEWER] 处理图片失败:', error);
     statusMessage.value = `处理失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -138,7 +147,7 @@ async function main() {
     chunkManager.setWebGLContext(gl!);
 
     // 设置 chunk 就绪回调，实现逐步渲染
-    chunkManager.setOnChunkReady((chunk) => {
+    chunkManager.setOnChunkReady(chunk => {
       console.log(`[IMAGE_VIEWER] Chunk ${chunk.id} 就绪，立即渲染`);
       // 立即渲染当前可用的所有 chunks
       renderChunks();
@@ -147,7 +156,6 @@ async function main() {
     isInitialized.value = true;
     statusMessage.value = 'WebGL初始化完成，请选择图片文件';
     statusColor.value = '#4CAF50';
-
   } catch (error) {
     console.error('[IMAGE_VIEWER] 初始化失败:', error);
     statusMessage.value = `WebGL初始化失败: ${error instanceof Error ? error.message : String(error)}`;
@@ -157,14 +165,14 @@ async function main() {
 
 // 初始化 WebGL
 async function initializeWebGL(): Promise<void> {
-  canvas = document.querySelector("#canvas") as HTMLCanvasElement;
+  canvas = document.querySelector('#canvas') as HTMLCanvasElement;
   if (!canvas) {
-    throw new Error("Canvas 元素未找到");
+    throw new Error('Canvas 元素未找到');
   }
 
-  gl = canvas.getContext("webgl2");
+  gl = canvas.getContext('webgl2');
   if (!gl) {
-    throw new Error("WebGL2 不可用");
+    throw new Error('WebGL2 不可用');
   }
 
   // 设置 canvas 尺寸
@@ -201,12 +209,12 @@ async function initializeWebGL(): Promise<void> {
   ]);
 
   if (!program) {
-    throw new Error("Failed to create WebGL program");
+    throw new Error('Failed to create WebGL program');
   }
 
   // 设置顶点属性
-  const positionAttributeLocation = gl.getAttribLocation(program, "a_position");
-  const texCoordAttributeLocation = gl.getAttribLocation(program, "a_texCoord");
+  const positionAttributeLocation = gl.getAttribLocation(program, 'a_position');
+  const texCoordAttributeLocation = gl.getAttribLocation(program, 'a_texCoord');
 
   vao = gl.createVertexArray();
   gl.bindVertexArray(vao);
@@ -222,7 +230,9 @@ async function initializeWebGL(): Promise<void> {
   gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
   gl.bufferData(
     gl.ARRAY_BUFFER,
-    new Float32Array([0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0]),
+    new Float32Array([
+      0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0,
+    ]),
     gl.STATIC_DRAW
   );
   gl.enableVertexAttribArray(texCoordAttributeLocation);
@@ -260,7 +270,9 @@ async function loadAllChunks(): Promise<void> {
   // 按批次加载
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
-    console.log(`[IMAGE_VIEWER] 加载批次 ${batchIndex + 1}: ${batch.map(id => id).join(', ')}`);
+    console.log(
+      `[IMAGE_VIEWER] 加载批次 ${batchIndex + 1}: ${batch.map(id => id).join(', ')}`
+    );
 
     // 同时请求这一批的 chunks
     const promises = batch.map(chunkId => {
@@ -274,18 +286,25 @@ async function loadAllChunks(): Promise<void> {
 
     // 显示进度
     const stats = chunkManager.getStatusStats();
-    console.log(`[IMAGE_VIEWER] 进度: ${stats[ChunkStatus.IN_GPU]}/${chunkIds.length} chunks 已加载到 GPU`);
+    console.log(
+      `[IMAGE_VIEWER] 进度: ${stats[ChunkStatus.IN_GPU]}/${chunkIds.length} chunks 已加载到 GPU`
+    );
   }
 
   const endTime = getTime();
-  console.log(`[IMAGE_VIEWER] 所有 chunks 加载完成: ${endTime}ms (总耗时: ${endTime - startTime}ms)`);
+  console.log(
+    `[IMAGE_VIEWER] 所有 chunks 加载完成: ${endTime}ms (总耗时: ${endTime - startTime}ms)`
+  );
 
   // 开始渲染
   startRendering();
 }
 
 // 创建空间间隔的批次，确保同一批次中的 chunks 不相邻
-function createSpatialBatches(gridWidth: number, gridHeight: number): string[][] {
+function createSpatialBatches(
+  gridWidth: number,
+  gridHeight: number
+): string[][] {
   const batches: string[][] = [];
   const visited = new Set<string>();
 
@@ -361,7 +380,9 @@ function renderChunks(): void {
   }
 
   // 更新进度条
-  const progressElement = document.querySelector('.progress-fill') as HTMLElement;
+  const progressElement = document.querySelector(
+    '.progress-fill'
+  ) as HTMLElement;
   if (progressElement && totalChunks > 0) {
     const progress = (loadedChunksCount / totalChunks) * 100;
     progressElement.style.width = `${progress}%`;
@@ -384,8 +405,8 @@ function renderChunks(): void {
   if (vao) gl.bindVertexArray(vao);
 
   // 设置 uniforms
-  const resolutionLocation = gl.getUniformLocation(program, "u_resolution");
-  const imageLocation = gl.getUniformLocation(program, "u_image");
+  const resolutionLocation = gl.getUniformLocation(program, 'u_resolution');
+  const imageLocation = gl.getUniformLocation(program, 'u_image');
 
   gl.uniform2f(resolutionLocation, gl.canvas.width, gl.canvas.height);
   gl.uniform1i(imageLocation, 0);
@@ -414,7 +435,9 @@ function renderChunks(): void {
 
   // 只在第一次渲染时打印视口信息
   if (loadedChunks.length === 1) {
-    console.log(`[IMAGE_VIEWER] 固定视口: 图片尺寸(${imageWidth}x${imageHeight}), 缩放=${scale.toFixed(2)}, 偏移=(${offsetX.toFixed(0)}, ${offsetY.toFixed(0)})`);
+    console.log(
+      `[IMAGE_VIEWER] 固定视口: 图片尺寸(${imageWidth}x${imageHeight}), 缩放=${scale.toFixed(2)}, 偏移=(${offsetX.toFixed(0)}, ${offsetY.toFixed(0)})`
+    );
   }
 
   // 渲染每个 chunk
@@ -434,9 +457,13 @@ function renderChunks(): void {
       const isRecent = index >= loadedChunks.length - 3;
       if (isRecent) {
         // 为新加载的 chunk 添加边框效果
-        console.log(`[IMAGE_VIEWER] 渲染 chunk ${chunk.id} (新加载): 原始位置(${chunk.x}, ${chunk.y}), 屏幕位置(${screenX.toFixed(0)}, ${screenY.toFixed(0)})`);
+        console.log(
+          `[IMAGE_VIEWER] 渲染 chunk ${chunk.id} (新加载): 原始位置(${chunk.x}, ${chunk.y}), 屏幕位置(${screenX.toFixed(0)}, ${screenY.toFixed(0)})`
+        );
       } else {
-        console.log(`[IMAGE_VIEWER] 渲染 chunk ${chunk.id}: 原始位置(${chunk.x}, ${chunk.y}), 屏幕位置(${screenX.toFixed(0)}, ${screenY.toFixed(0)})`);
+        console.log(
+          `[IMAGE_VIEWER] 渲染 chunk ${chunk.id}: 原始位置(${chunk.x}, ${chunk.y}), 屏幕位置(${screenX.toFixed(0)}, ${screenY.toFixed(0)})`
+        );
       }
 
       // 设置矩形位置
@@ -478,11 +505,16 @@ async function forcePreprocess() {
       return;
     }
 
-    const metadata = await invoke('force_preprocess_chunks', { filePath: selectedFile.value.path }) as ImageMetadata;
+    const metadata = (await invoke('force_preprocess_chunks', {
+      filePath: selectedFile.value.path,
+    })) as ImageMetadata;
     console.log('[IMAGE_VIEWER] 强制预处理完成，重新初始化...');
 
     // 使用返回的元数据重新初始化
-    await chunkManager.initializeChunksFromMetadata(selectedFile.value.path, metadata);
+    await chunkManager.initializeChunksFromMetadata(
+      selectedFile.value.path,
+      metadata
+    );
     await loadAllChunks();
   } catch (error) {
     console.error('[IMAGE_VIEWER] 强制预处理失败:', error);
@@ -545,9 +577,19 @@ onMounted(() => {
 
       <!-- 文件选择区域 -->
       <div class="file-selection">
-        <input type="file" id="file-input" accept="image/*" @change="handleFileSelect" style="display: none;"
-          ref="fileInputRef" />
-        <button @click="triggerFileSelect" :disabled="isProcessing" class="file-select-btn">
+        <input
+          type="file"
+          id="file-input"
+          accept="image/*"
+          @change="handleFileSelect"
+          style="display: none"
+          ref="fileInputRef"
+        />
+        <button
+          @click="triggerFileSelect"
+          :disabled="isProcessing"
+          class="file-select-btn"
+        >
           选择图片文件
         </button>
       </div>
@@ -564,7 +606,13 @@ onMounted(() => {
       <div class="controls" v-if="isInitialized">
         <button @click="forcePreprocess">强制预处理</button>
         <button @click="clearCache">清理缓存</button>
-        <button @click="retryInitialization" id="retry-btn" style="display: none;">重试</button>
+        <button
+          @click="retryInitialization"
+          id="retry-btn"
+          style="display: none"
+        >
+          重试
+        </button>
       </div>
     </div>
     <canvas id="canvas"></canvas>
@@ -593,11 +641,11 @@ onMounted(() => {
 
 .info-panel h2 {
   margin: 0 0 10px 0;
-  color: #4CAF50;
+  color: #4caf50;
 }
 
 #status {
-  color: #FFC107;
+  color: #ffc107;
   margin-bottom: 10px;
 }
 
@@ -612,7 +660,7 @@ onMounted(() => {
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #4CAF50, #8BC34A);
+  background: linear-gradient(90deg, #4caf50, #8bc34a);
   width: 0%;
   transition: width 0.3s ease;
   border-radius: 4px;
@@ -628,7 +676,7 @@ onMounted(() => {
   padding: 8px 16px;
   border: none;
   border-radius: 4px;
-  background: #2196F3;
+  background: #2196f3;
   color: white;
   cursor: pointer;
   font-size: 12px;
@@ -636,15 +684,15 @@ onMounted(() => {
 }
 
 .controls button:hover {
-  background: #1976D2;
+  background: #1976d2;
 }
 
 .controls button:last-child {
-  background: #F44336;
+  background: #f44336;
 }
 
 .controls button:last-child:hover {
-  background: #D32F2F;
+  background: #d32f2f;
 }
 
 .file-selection {
@@ -658,7 +706,7 @@ onMounted(() => {
   padding: 10px 20px;
   border: none;
   border-radius: 6px;
-  background: #2196F3;
+  background: #2196f3;
   color: white;
   cursor: pointer;
   font-size: 14px;
@@ -667,11 +715,11 @@ onMounted(() => {
 }
 
 .file-select-btn:hover:not(:disabled) {
-  background: #1976D2;
+  background: #1976d2;
 }
 
 .file-select-btn:disabled {
-  background: #9E9E9E;
+  background: #9e9e9e;
   cursor: not-allowed;
 }
 
@@ -683,7 +731,7 @@ onMounted(() => {
 }
 
 .selected-file span {
-  color: #4CAF50;
+  color: #4caf50;
   font-weight: 500;
 }
 
@@ -691,7 +739,7 @@ onMounted(() => {
   padding: 8px 16px;
   border: none;
   border-radius: 4px;
-  background: #4CAF50;
+  background: #4caf50;
   color: white;
   cursor: pointer;
   font-size: 12px;
@@ -699,11 +747,11 @@ onMounted(() => {
 }
 
 .process-btn:hover:not(:disabled) {
-  background: #45A049;
+  background: #45a049;
 }
 
 .process-btn:disabled {
-  background: #9E9E9E;
+  background: #9e9e9e;
   cursor: not-allowed;
 }
 

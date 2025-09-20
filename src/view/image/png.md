@@ -39,12 +39,12 @@ async function main() {
   chunkManager.setWebGLContext(gl!);
 
   // 3. 设置 chunk 就绪回调
-  chunkManager.setOnChunkReady((chunk) => {
+  chunkManager.setOnChunkReady(chunk => {
     renderChunks(); // 立即渲染
   });
 
   // 4. 显示就绪状态
-  statusMessage.value = "WebGL初始化完成，请选择图片文件";
+  statusMessage.value = 'WebGL初始化完成，请选择图片文件';
 }
 ```
 
@@ -64,13 +64,13 @@ function triggerFileSelect() {
 
 // 打开文件选择对话框
 const selectedPath = await open({
-  title: "选择要处理的图片文件",
+  title: '选择要处理的图片文件',
   directory: false,
   multiple: false,
   filters: [
     {
-      name: "图片文件",
-      extensions: ["png", "jpg", "jpeg", "bmp", "tiff", "webp"],
+      name: '图片文件',
+      extensions: ['png', 'jpg', 'jpeg', 'bmp', 'tiff', 'webp'],
     },
   ],
 });
@@ -80,7 +80,7 @@ const selectedPath = await open({
 
 ```typescript
 selectedFile.value = {
-  name: selectedPath.split("/").pop() || "未知文件",
+  name: selectedPath.split('/').pop() || '未知文件',
   path: selectedPath,
   size: 0,
 };
@@ -98,7 +98,7 @@ statusMessage.value = `已选择: ${selectedFile.value.name}`;
 
 ```typescript
 // 前端调用
-const metadata = (await invoke("process_user_image", {
+const metadata = (await invoke('process_user_image', {
   filePath: selectedFile.value.path,
 })) as ImageMetadata;
 ```
@@ -186,7 +186,7 @@ async function loadAllChunks(): Promise<void> {
   // 3. 按批次加载
   for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
     const batch = batches[batchIndex];
-    const promises = batch.map((chunkId) => chunkManager.requestChunk(chunkId));
+    const promises = batch.map(chunkId => chunkManager.requestChunk(chunkId));
     await Promise.all(promises);
   }
 }
@@ -196,7 +196,7 @@ async function loadAllChunks(): Promise<void> {
 
 ```typescript
 // 在 ChunkManager.processQueue 中
-const rawData = await invoke("get_image_chunk", {
+const rawData = await invoke('get_image_chunk', {
   chunkX: chunk.chunk_x,
   chunkY: chunk.chunk_y,
   filePath: this.currentFilePath,
@@ -249,7 +249,7 @@ this.onChunkReady?.(chunk);
 
 ```typescript
 // 每当 chunk 就绪时，立即渲染
-chunkManager.setOnChunkReady((chunk) => {
+chunkManager.setOnChunkReady(chunk => {
   console.log(`[IMAGE_VIEWER] Chunk ${chunk.id} 就绪，立即渲染`);
   renderChunks(); // 渲染所有可用的 chunks
 });
@@ -264,7 +264,7 @@ chunkManager.setOnChunkReady((chunk) => {
 ```typescript
 async function forcePreprocess() {
   // 1. 调用后端强制预处理
-  const metadata = (await invoke("force_preprocess_chunks", {
+  const metadata = (await invoke('force_preprocess_chunks', {
     filePath: selectedFile.value.path,
   })) as ImageMetadata;
 

@@ -1,14 +1,14 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from '@tauri-apps/api/core';
 
 // Chunk 状态管理
 
 // Chunk 状态枚举
 export enum ChunkStatus {
-  UNREQUESTED = "unrequested", // 未请求
-  REQUESTING = "requesting", // 请求中
-  IN_CPU = "in_cpu", // 处于 CPU 中（已接收，未上传 GPU）
-  IN_GPU = "in_gpu", // 处于 GPU 中（已上传到 WebGL）
-  ERROR = "error", // 请求失败
+  UNREQUESTED = 'unrequested', // 未请求
+  REQUESTING = 'requesting', // 请求中
+  IN_CPU = 'in_cpu', // 处于 CPU 中（已接收，未上传 GPU）
+  IN_GPU = 'in_gpu', // 处于 GPU 中（已上传到 WebGL）
+  ERROR = 'error', // 请求失败
 }
 
 // Chunk 信息接口
@@ -108,7 +108,7 @@ export class ChunkManager {
   private currentFilePath?: string; // 当前处理的文件路径
 
   constructor() {
-    console.log("[CHUNK_MANAGER] 初始化完成");
+    console.log('[CHUNK_MANAGER] 初始化完成');
   }
 
   // 设置 WebGL 上下文
@@ -119,7 +119,7 @@ export class ChunkManager {
   // 设置 chunk 就绪回调
   public setOnChunkReady(callback: (chunk: ImageChunk) => void): void {
     this.onChunkReady = callback;
-    console.log("[CHUNK_MANAGER] Chunk 就绪回调已设置");
+    console.log('[CHUNK_MANAGER] Chunk 就绪回调已设置');
   }
 
   // 初始化 chunk 信息（从已有元数据）
@@ -128,7 +128,7 @@ export class ChunkManager {
     metadata: ImageMetadata
   ): Promise<void> {
     try {
-      console.log("[CHUNK_MANAGER] 从已有元数据初始化 chunks...", filePath);
+      console.log('[CHUNK_MANAGER] 从已有元数据初始化 chunks...', filePath);
 
       // 保存当前文件路径
       this.currentFilePath = filePath;
@@ -141,14 +141,14 @@ export class ChunkManager {
       );
 
       // 创建所有 chunk 对象
-      this.metadata.chunks.forEach((chunkInfo) => {
+      this.metadata.chunks.forEach(chunkInfo => {
         const chunk = new ImageChunk(chunkInfo);
         this.chunks.set(chunk.id, chunk);
       });
 
-      console.log("[CHUNK_MANAGER] Chunk 初始化完成");
+      console.log('[CHUNK_MANAGER] Chunk 初始化完成');
     } catch (error) {
-      console.error("[CHUNK_MANAGER] 初始化失败:", error);
+      console.error('[CHUNK_MANAGER] 初始化失败:', error);
       throw error;
     }
   }
@@ -156,14 +156,14 @@ export class ChunkManager {
   // 初始化 chunk 信息（从后端获取元数据）
   public async initializeChunks(filePath: string): Promise<void> {
     try {
-      console.log("[CHUNK_MANAGER] 开始获取图片元数据...", filePath);
+      console.log('[CHUNK_MANAGER] 开始获取图片元数据...', filePath);
 
       // 保存当前文件路径
       this.currentFilePath = filePath;
 
       // 调用 Rust 获取元数据
-      this.metadata = await invoke("get_image_metadata_for_file", {
-        filePath: filePath,
+      this.metadata = await invoke('get_image_metadata_for_file', {
+        filePath,
       });
 
       console.log(
@@ -171,14 +171,14 @@ export class ChunkManager {
       );
 
       // 创建所有 chunk 对象
-      this.metadata.chunks.forEach((chunkInfo) => {
+      this.metadata.chunks.forEach(chunkInfo => {
         const chunk = new ImageChunk(chunkInfo);
         this.chunks.set(chunk.id, chunk);
       });
 
-      console.log("[CHUNK_MANAGER] Chunk 初始化完成");
+      console.log('[CHUNK_MANAGER] Chunk 初始化完成');
     } catch (error) {
-      console.error("[CHUNK_MANAGER] 初始化失败:", error);
+      console.error('[CHUNK_MANAGER] 初始化失败:', error);
       throw error;
     }
   }
@@ -231,7 +231,7 @@ export class ChunkManager {
       console.log(`[CHUNK_MANAGER] 开始请求 chunk: ${chunkId}`);
 
       // 调用 Rust 获取 chunk 数据（零拷贝版本）
-      const rawData = await invoke("get_image_chunk", {
+      const rawData = await invoke('get_image_chunk', {
         chunkX: chunk.chunk_x,
         chunkY: chunk.chunk_y,
         filePath: this.currentFilePath,
@@ -317,7 +317,7 @@ export class ChunkManager {
   // 上传 chunk 到 GPU
   private async uploadChunkToGPU(chunk: ImageChunk): Promise<void> {
     if (!this.gl || !chunk.data) {
-      console.error("[CHUNK_MANAGER] WebGL 上下文或 chunk 数据不可用");
+      console.error('[CHUNK_MANAGER] WebGL 上下文或 chunk 数据不可用');
       return;
     }
 
@@ -325,7 +325,7 @@ export class ChunkManager {
       // 创建纹理
       const texture = this.gl.createTexture();
       if (!texture) {
-        throw new Error("无法创建 WebGL 纹理");
+        throw new Error('无法创建 WebGL 纹理');
       }
 
       this.gl.bindTexture(this.gl.TEXTURE_2D, texture);
@@ -382,7 +382,7 @@ export class ChunkManager {
   // 获取所有已加载的 chunk
   public getLoadedChunks(): ImageChunk[] {
     return Array.from(this.chunks.values()).filter(
-      (chunk) => chunk.status === ChunkStatus.IN_GPU
+      chunk => chunk.status === ChunkStatus.IN_GPU
     );
   }
 
@@ -406,7 +406,7 @@ export class ChunkManager {
       [ChunkStatus.ERROR]: 0,
     };
 
-    this.chunks.forEach((chunk) => {
+    this.chunks.forEach(chunk => {
       stats[chunk.status]++;
     });
 
@@ -416,13 +416,13 @@ export class ChunkManager {
   // 清理资源
   public cleanup(): void {
     if (this.gl) {
-      this.chunks.forEach((chunk) => {
+      this.chunks.forEach(chunk => {
         chunk.cleanup(this.gl!);
       });
     }
     this.chunks.clear();
     this.requestQueue = [];
     this.activeRequests = 0;
-    console.log("[CHUNK_MANAGER] 资源清理完成");
+    console.log('[CHUNK_MANAGER] 资源清理完成');
   }
 }
